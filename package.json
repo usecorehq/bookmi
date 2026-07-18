@@ -1,0 +1,23 @@
+{
+  "name": "bookmi",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Bookmi by Qorelly — a shareable link where anyone can book and pay for your services.",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=20.19.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}
