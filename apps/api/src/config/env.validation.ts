@@ -15,10 +15,26 @@ enum NodeEnv {
   Test = "test",
 }
 
+enum AppEnv {
+  Dev = "dev",
+  Staging = "staging",
+  Sandbox = "sandbox",
+  Prod = "prod",
+}
+
 class EnvVars {
   @IsEnum(NodeEnv)
   @IsOptional()
   NODE_ENV: NodeEnv = NodeEnv.Development;
+
+  /**
+   * Encoded into every payment reference this deployment mints. Determines
+   * which environment "owns" a webhook when the same provider callback is
+   * shared across dev/staging/prod. See payment-reference.ts.
+   */
+  @IsEnum(AppEnv)
+  @IsOptional()
+  APP_ENV: AppEnv = AppEnv.Dev;
 
   @IsInt()
   @Min(0)
@@ -36,8 +52,20 @@ class EnvVars {
   @IsString()
   SUPABASE_SERVICE_ROLE_KEY!: string;
 
+  /** HS256 secret from Supabase → Project Settings → API → JWT Settings. */
   @IsString()
-  DATABASE_URL!: string;
+  SUPABASE_JWT_SECRET!: string;
+
+  /**
+   * Postgres connection string for the Supabase project. Local:
+   *   postgres://postgres:<pw>@localhost:54322/postgres
+   * Cloud (direct):
+   *   postgres://postgres:<pw>@db.<ref>.supabase.co:5432/postgres
+   * Cloud (pooled — Supavisor):
+   *   postgres://postgres.<ref>:<pw>@<region>.pooler.supabase.com:6543/postgres
+   */
+  @IsString()
+  SUPABASE_DB_URL!: string;
 
   // ── Monnify ──
   @IsString()

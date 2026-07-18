@@ -1,8 +1,8 @@
 import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is required for drizzle-kit");
+if (!process.env.SUPABASE_DB_URL) {
+  throw new Error("SUPABASE_DB_URL is required for drizzle-kit");
 }
 
 export default defineConfig({
@@ -10,7 +10,7 @@ export default defineConfig({
   out: "./src/drizzle/migrations",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    url: process.env.SUPABASE_DB_URL,
   },
   strict: true,
   verbose: true,

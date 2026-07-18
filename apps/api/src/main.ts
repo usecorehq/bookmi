@@ -6,6 +6,8 @@ import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
+    // Webhook signature verification needs the untouched request bytes.
+    rawBody: true,
     logger: ["error", "warn", "log"],
   });
 
@@ -20,7 +22,7 @@ async function bootstrap() {
   );
 
   const config = app.get(ConfigService);
-  const port = config.get<number>("PORT", 4000);
+  const port = config.get<number>("port", 4000);
 
   await app.listen(port);
   new Logger("Bootstrap").log(`Bookmi API listening on http://localhost:${port}/api`);
