@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { DashboardLayout } from "@/components/layouts/DashboardLayout";
 import { LandingPage } from "@/pages/LandingPage";
@@ -29,42 +30,47 @@ import BookingPaymentPage from "@/pages/pay/BookingPaymentPage";
  *   /dashboard/*                       (requireAuth + requireOnboarded) → DashboardLayout
  *   /:slug                             public host page (later)
  *   /:slug/checkout/:serviceId         checkout (later)
+ *
+ * `ThemeProvider` sits inside `AuthProvider` so it can read the host's
+ * saved accent from `useAuth().profile.accentColor` and write it to `:root`
+ * as CSS variables — every `bg-primary`/`bg-primary-light` re-tints at runtime.
  */
 export function AppRouter() {
   return (
     <AuthProvider>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/auth/login" element={<LoginPage />} />
-        <Route path="/auth/signup" element={<SignupPage />} />
-        <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/auth/verify-otp" element={<VerifyOtpPage />} />
-        <Route path="/auth/update-password" element={<UpdatePasswordPage />} />
-        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <ThemeProvider>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/auth/login" element={<LoginPage />} />
+          <Route path="/auth/signup" element={<SignupPage />} />
+          <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/auth/verify-otp" element={<VerifyOtpPage />} />
+          <Route path="/auth/update-password" element={<UpdatePasswordPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-        <Route element={<RequireAuth />}>
-          <Route path="/onboarding" element={<OnboardingPage />} />
-        </Route>
-
-        <Route element={<RequireAuth requireOnboarded />}>
-          <Route path="/dashboard" element={<DashboardLayout />}>
-            <Route index element={<DashboardHomePage />} />
-            <Route path="services" element={<ServicesPage />} />
-            <Route path="bookings" element={<BookingsPage />} />
-            <Route path="tips" element={<TipsPage />} />
-            <Route path="customers" element={<CustomersPage />} />
-            <Route path="customers/:id" element={<CustomerDetailPage />} />
-            <Route path="wallet" element={<WalletPage />} />
-            <Route path="profile" element={<ProfilePage />} />
+          <Route element={<RequireAuth />}>
+            <Route path="/onboarding" element={<OnboardingPage />} />
           </Route>
-        </Route>
 
-        <Route path="/pay/:bookingId" element={<BookingPaymentPage />} />
+          <Route element={<RequireAuth requireOnboarded />}>
+            <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route index element={<DashboardHomePage />} />
+              <Route path="services" element={<ServicesPage />} />
+              <Route path="bookings" element={<BookingsPage />} />
+              <Route path="tips" element={<TipsPage />} />
+              <Route path="customers" element={<CustomersPage />} />
+              <Route path="customers/:id" element={<CustomerDetailPage />} />
+              <Route path="wallet" element={<WalletPage />} />
+              <Route path="profile" element={<ProfilePage />} />
+            </Route>
+          </Route>
 
-        <Route path="/:slug" element={<HostPublicPage />} />
-        <Route path="/:slug/:serviceSlug" element={<HostPublicPage />} />
-      </Routes>
+          <Route path="/pay/:bookingId" element={<BookingPaymentPage />} />
+
+          <Route path="/:slug" element={<HostPublicPage />} />
+          <Route path="/:slug/:serviceSlug" element={<HostPublicPage />} />
+        </Routes>
+      </ThemeProvider>
     </AuthProvider>
   );
 }
-

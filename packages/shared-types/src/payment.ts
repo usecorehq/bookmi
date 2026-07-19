@@ -111,7 +111,7 @@ export interface InitiatePaymentResponse {
 
 // ─── Payouts ─────────────────────────────────────────────────────────
 
-export type PayoutStatus = "initiated" | "success" | "failed";
+export type PayoutStatus = "initiated" | "processing" | "pending" | "success" | "failed";
 
 export interface Payout {
   id: string;
@@ -122,6 +122,12 @@ export interface Payout {
   monnifyReference: string | null;
   status: PayoutStatus;
   failureReason: string | null;
+  /**
+   * Client-supplied idempotency token. Same host + same key = same payout
+   * row — a retried request hits the cached response rather than a second
+   * disbursement. Null for legacy rows created before the ledger existed.
+   */
+  idempotencyKey: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -213,6 +213,11 @@ export class SavePayoutAccountDto extends createZodDto(SavePayoutAccountSchema) 
  * bank account and debits the host wallet. `accountName` is what the client
  * saw after auto-verify; the server re-resolves it against the provider and
  * bounces the request on a mismatch.
+ *
+ * The client MUST also send `x-idempotency-key` and `x-otp-code` headers
+ * (enforced at the controller layer). The idempotency key anchors the
+ * refund row so a retried request lands on the cached response rather than
+ * a second disbursement.
  */
 export const RefundBookingSchema = z
   .object({
@@ -226,3 +231,17 @@ export const RefundBookingSchema = z
   })
   .strict();
 export class RefundBookingDto extends createZodDto(RefundBookingSchema) {}
+
+// ─── Withdraw ──────────────────────────────────────────────────────────
+
+/**
+ * POST /hosts/me/wallet/withdraw — pay the host from their wallet to the
+ * saved payout account. Amount is in the body; destination + OTP + idempotency
+ * key are read from headers so the request shape mirrors refund.
+ */
+export const WithdrawSchema = z
+  .object({
+    amountKobo: z.number().int().positive(),
+  })
+  .strict();
+export class WithdrawDto extends createZodDto(WithdrawSchema) {}

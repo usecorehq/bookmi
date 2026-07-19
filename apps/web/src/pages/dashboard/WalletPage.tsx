@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Wallet as WalletIcon,
@@ -7,6 +7,7 @@ import {
   Copy,
   Check,
   ArrowUpRight,
+  ArrowLeft,
   AlertCircle,
   Loader2,
   X,
@@ -14,6 +15,9 @@ import {
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useHostWallet, type WalletView } from "@/hooks/useHostWallet";
+import { useRequestOtp } from "@/hooks/useSecurityOtp";
+import { useWithdraw } from "@/hooks/useWithdraw";
+import { FormMessage } from "@/components/ui/FormMessage";
 import { formatNaira } from "@/lib/utils";
 import type { HostWallet, Payout } from "@bookmi/shared-types";
 
@@ -350,6 +354,13 @@ const STATUS_STYLE: Record<string, string> = {
   no_show: "bg-gray-100 text-gray-500",
 };
 
+/**
+ * Two-step withdraw flow — mirrors the refund modal so the OTP experience
+ * feels the same everywhere money leaves the wallet.
+ *
+ * Step 1: amount + read-only preview of the saved payout account.
+ * Step 2: OTP challenge, resend link, "Change amount" back link.
+ */
 function WithdrawModal({
   wallet,
   onClose,
@@ -357,12 +368,24 @@ function WithdrawModal({
   wallet: HostWallet;
   onClose: () => void;
 }) {
+  const requestOtpMutation = useRequestOtp();
+  const withdrawMutation = useWithdraw();
+
+  // One idempotency key per open — a retry with the same key hits the
+  // cached ledger row instead of a second disbursement.
+  const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+
+  const [step, setStep] = useState<"amount" | "otp">("amount");
   const [amount, setAmount] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [amountError, setAmountError] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpExpiresAt, setOtpExpiresAt] = useState<Date | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const otpInputRef = useRef<HTMLInputElement>(null);
 
   const balanceNaira = wallet.balanceKobo / 100;
-  const hasPayoutAccount = !!wallet.bankAccountNumber;
+  const hasPayoutAccount = !!wallet.bankAccountNumber && !!wallet.bankCode;
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -370,38 +393,86 @@ function WithdrawModal({
     return () => document.removeEventListener("keydown", onEsc);
   }, [onClose]);
 
+  useEffect(() => {
+    if (step !== "otp") return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [step]);
+
+  useEffect(() => {
+    if (step === "otp") otpInputRef.current?.focus();
+  }, [step]);
+
   const parsed = Number(amount);
   const validAmount =
     amount.trim() !== "" &&
     Number.isFinite(parsed) &&
     parsed > 0 &&
     parsed <= balanceNaira;
+  const amountKobo = validAmount ? Math.round(parsed * 100) : 0;
 
-  const canSubmit = hasPayoutAccount && validAmount && !submitting;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  const handleContinue = async () => {
+    setAmountError(null);
     if (!hasPayoutAccount) {
-      setError("Add a payout account in Profile before withdrawing.");
+      setAmountError("Add a payout account in Profile before withdrawing.");
       return;
     }
     if (!validAmount) {
-      setError(
+      setAmountError(
         parsed > balanceNaira
           ? "Amount exceeds your wallet balance."
           : "Enter an amount greater than 0.",
       );
       return;
     }
-    setSubmitting(true);
-    // Placeholder: no backend call. Endpoint lands with the payouts feature.
-    window.setTimeout(() => {
-      toast("Withdrawal endpoint lands with the payouts feature — coming soon.");
-      setSubmitting(false);
-      onClose();
-    }, 250);
+    try {
+      const res = await requestOtpMutation.mutateAsync("withdraw_funds");
+      setOtpExpiresAt(new Date(res.expiresAt));
+      setOtpCode("");
+      setOtpError(null);
+      setStep("otp");
+    } catch (err) {
+      setAmountError(readError(err));
+    }
   };
+
+  const handleResend = async () => {
+    setOtpError(null);
+    try {
+      const res = await requestOtpMutation.mutateAsync("withdraw_funds");
+      setOtpExpiresAt(new Date(res.expiresAt));
+      setOtpCode("");
+      toast.success("New code sent.");
+    } catch (err) {
+      toast.error(readError(err));
+    }
+  };
+
+  const handleConfirm = async () => {
+    setOtpError(null);
+    if (!/^\d{6}$/.test(otpCode)) {
+      setOtpError("Enter the 6-digit code.");
+      return;
+    }
+    try {
+      await withdrawMutation.mutateAsync({
+        amountKobo,
+        idempotencyKey,
+        otpCode,
+      });
+      toast.success("Withdrawal initiated");
+      onClose();
+    } catch (err) {
+      setOtpError(readError(err));
+    }
+  };
+
+  const remainingMs = otpExpiresAt ? otpExpiresAt.getTime() - now : 0;
+  const remainingSec = Math.max(0, Math.floor(remainingMs / 1000));
+  const mm = Math.floor(remainingSec / 60);
+  const ss = String(remainingSec % 60).padStart(2, "0");
+
+  const acctLast4 = wallet.bankAccountNumber?.slice(-4) ?? "----";
 
   return (
     <div
@@ -414,79 +485,222 @@ function WithdrawModal({
         role="dialog"
         aria-modal="true"
       >
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="flex items-start justify-between mb-1">
+        <div className="p-6 border-b border-gray-200 flex items-start justify-between">
+          <div>
             <h2 className="text-xl font-semibold">Withdraw to bank</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <p className="text-sm text-muted-foreground mt-1">
+              {step === "amount"
+                ? `Available: ${formatNaira(wallet.balanceKobo)}`
+                : "Confirm the withdrawal with the code we just emailed you."}
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground mb-6">
-            Available balance: {formatNaira(wallet.balanceKobo)}
-          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-          {!hasPayoutAccount && (
-            <div className="mb-4 p-3 flex items-start gap-2 border border-red-200 bg-red-50">
-              <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-              <div className="text-sm text-red-700">
-                No payout account set.{" "}
-                <Link to="/dashboard/profile?tab=payout" className="underline font-medium">
-                  Set up in Profile
-                </Link>
-                .
+        {step === "amount" ? (
+          <>
+            <div className="p-6 space-y-4">
+              {!hasPayoutAccount && (
+                <div className="p-3 flex items-start gap-2 border border-red-200 bg-red-50">
+                  <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+                  <div className="text-sm text-red-700">
+                    No payout account set.{" "}
+                    <Link
+                      to="/dashboard/profile?tab=payout"
+                      className="underline font-medium"
+                    >
+                      Set up in Profile
+                    </Link>
+                    .
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Amount</label>
+                <div className="flex items-stretch">
+                  <span className="inline-flex items-center px-3 border border-r-0 border-gray-200 bg-gray-50 text-sm text-muted-foreground select-none">
+                    ₦
+                  </span>
+                  <input
+                    className="input-field flex-1"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => {
+                      setAmount(e.target.value);
+                      setAmountError(null);
+                    }}
+                    placeholder={formatNaira(wallet.balanceKobo).replace("₦", "")}
+                    autoFocus
+                    disabled={!hasPayoutAccount}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Up to {formatNaira(wallet.balanceKobo)}.
+                </p>
+              </div>
+
+              {hasPayoutAccount && (
+                <div className="border border-gray-200 bg-gray-50 p-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                        Payout account
+                      </div>
+                      <div className="text-sm font-medium mt-0.5 truncate">
+                        {wallet.bankAccountName}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5 font-mono">
+                        {wallet.bankCode} · ••••{acctLast4}
+                      </div>
+                    </div>
+                    <Link
+                      to="/dashboard/profile?tab=payout"
+                      className="text-xs text-primary hover:underline shrink-0"
+                    >
+                      Change in Profile
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {amountError && (
+                <FormMessage variant="error" message={amountError} />
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={requestOtpMutation.isPending}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleContinue}
+                disabled={
+                  !hasPayoutAccount ||
+                  !validAmount ||
+                  requestOtpMutation.isPending
+                }
+                className="btn-primary"
+              >
+                {requestOtpMutation.isPending && (
+                  <Loader2 className="w-4 h-4 mr-2 inline animate-spin" />
+                )}
+                Continue
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="p-6 space-y-4">
+              <div>
+                <h3 className="text-base font-semibold">
+                  Enter the 6-digit code we just emailed you
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Expires in {mm}:{ss}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Verification code
+                </label>
+                <input
+                  ref={otpInputRef}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  className="input-field text-center text-lg tracking-[0.5em] font-mono"
+                  value={otpCode}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+                    setOtpCode(digits);
+                    setOtpError(null);
+                  }}
+                  placeholder="000000"
+                />
+              </div>
+
+              <div className="text-sm">
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={requestOtpMutation.isPending}
+                  className="text-primary hover:underline disabled:opacity-50"
+                >
+                  Didn't get it? Resend
+                </button>
+              </div>
+
+              {otpError && <FormMessage variant="error" message={otpError} />}
+
+              <div className="text-xs text-muted-foreground border-t border-gray-200 pt-4 mt-4">
+                <div className="font-medium mb-1">Withdrawal summary</div>
+                <div>
+                  {formatNaira(amountKobo)} → {wallet.bankAccountName} · ••••
+                  {acctLast4}
+                </div>
               </div>
             </div>
-          )}
 
-          <label className="block text-sm font-medium mb-2">Amount</label>
-          <div className="flex items-stretch">
-            <span className="inline-flex items-center px-3 border border-r-0 border-gray-200 bg-gray-50 text-sm text-muted-foreground select-none">
-              ₦
-            </span>
-            <input
-              className="input-field flex-1"
-              type="number"
-              min={0}
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0"
-              autoFocus
-              disabled={!hasPayoutAccount}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground mt-1.5">
-            Up to {formatNaira(wallet.balanceKobo)}.
-          </p>
-
-          {error && (
-            <div className="mt-4 p-3 flex items-start gap-2 border border-red-200 bg-red-50">
-              <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-              <div className="text-sm text-red-700">{error}</div>
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("amount");
+                  setOtpError(null);
+                }}
+                disabled={withdrawMutation.isPending}
+                className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Change amount
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={
+                  withdrawMutation.isPending || !/^\d{6}$/.test(otpCode)
+                }
+                className="btn-primary"
+              >
+                {withdrawMutation.isPending && (
+                  <Loader2 className="w-4 h-4 mr-2 inline animate-spin" />
+                )}
+                Confirm withdrawal {formatNaira(amountKobo)}
+              </button>
             </div>
-          )}
-
-          <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="btn-secondary"
-            >
-              Cancel
-            </button>
-            <button type="submit" disabled={!canSubmit} className="btn-primary">
-              {submitting && <Loader2 className="w-4 h-4 mr-2 inline animate-spin" />}
-              Request withdrawal
-            </button>
-          </div>
-        </form>
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+function readError(err: unknown): string {
+  if (err && typeof err === "object" && "body" in err) {
+    const body = (err as { body?: unknown }).body;
+    if (body && typeof body === "object" && "message" in body) {
+      const m = (body as { message?: unknown }).message;
+      if (typeof m === "string") return m;
+      if (Array.isArray(m)) return m.join(", ");
+    }
+  }
+  return err instanceof Error ? err.message : "Something went wrong.";
 }

@@ -13,7 +13,8 @@ export type EmailJob =
   | BookingConfirmedCustomerJob
   | BookingPaymentLinkJob
   | ResetPasswordJob
-  | ConfirmEmailJob;
+  | ConfirmEmailJob
+  | SecurityOtpJob;
   
 export interface ResetPasswordJob {
   kind: "reset_password";
@@ -79,6 +80,23 @@ export interface BookingConfirmedCustomerData {
   amountKobo: number;
   bookingCode: string;
   publicPageUrl: string;
+}
+
+export interface SecurityOtpJob {
+  kind: "security_otp";
+  to: string;
+  data: SecurityOtpData;
+}
+
+export interface SecurityOtpData {
+  /** 6-digit plaintext code — the only place it lives. */
+  code: string;
+  /** Discriminator so the template can label the action. */
+  purpose: "refund_booking" | "withdraw_funds";
+  /** Human-facing label — "refund" or "withdrawal". */
+  purposeLabel: string;
+  /** How long until the code goes stale — used in the copy. */
+  expiresInMinutes: number;
 }
 
 export interface BookingPaymentLinkData {

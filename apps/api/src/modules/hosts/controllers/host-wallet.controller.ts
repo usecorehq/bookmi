@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Res,
+} from "@nestjs/common";
+import type { Response } from "express";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
   CurrentUser,
@@ -10,6 +21,8 @@ import {
   SavePayoutAccountSchema,
   VerifyBankAccountDto,
   VerifyBankAccountSchema,
+  WithdrawDto,
+  WithdrawSchema,
 } from "../dto/hosts.dto";
 import { HostWalletService } from "../services/host-wallet.service";
 
@@ -60,5 +73,44 @@ export class HostWalletController {
   ) {
     const wallet = await this.wallet.savePayoutAccount(user.sub, body);
     return { wallet };
+  }
+
+  @Post("withdraw")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Withdraw funds to the saved payout account. Requires x-idempotency-key + x-otp-code headers. Destination bank comes from the host's saved account — never the request body — so a compromised session can't swap the destination.",
+  })
+  async withdraw(
+    @Body(new ZodValidationPipe(WithdrawSchema)) body: WithdrawDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-idempotency-key") idempotencyKey: string | undefined,
+    @Headers("x-otp-code") otpCode: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 100) {
+      throw new BadRequestException(
+        "x-idempotency-key header required (8-100 chars).",
+      );
+    }
+    if (!otpCode || !/^\d{6}$/.test(otpCode)) {
+      throw new BadRequestException(
+        "x-otp-code header required (6 digits).",
+      );
+    }
+    const result = await this.wallet.withdraw(user.sub, {
+      amountKobo: body.amountKobo,
+      idempotencyKey,
+      otpCode,
+    });
+    if (result.cached && result.payout.status === "failed") {
+      throw new BadRequestException(
+        result.payout.failureReason ?? "Withdrawal previously failed.",
+      );
+    }
+    if (result.cached && result.payout.status === "processing") {
+      res.status(HttpStatus.ACCEPTED);
+    }
+    return { payout: result.payout };
   }
 }

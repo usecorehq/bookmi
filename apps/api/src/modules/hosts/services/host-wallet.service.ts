@@ -2,10 +2,11 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
 import {
   bookings,
@@ -17,6 +18,7 @@ import {
 } from "../../../drizzle/schema";
 import { PaymentProviderRegistry } from "../../payments/providers/payment-provider.registry";
 import type { Bank } from "../../payments/providers/payment-provider.interface";
+import { SecurityService } from "../../security/security.service";
 
 export interface WalletView {
   wallet: HostWallet;
@@ -37,6 +39,8 @@ const BANKS_TTL_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class HostWalletService {
+  private readonly logger = new Logger(HostWalletService.name);
+
   /**
    * Process-local bank-list cache. The list changes rarely (new bank codes
    * roll out maybe a few times a year), so we skip Redis and let each API
@@ -47,6 +51,7 @@ export class HostWalletService {
   constructor(
     @Inject(SUPABASE_DB) private readonly db: SupabaseDb,
     private readonly registry: PaymentProviderRegistry,
+    private readonly security: SecurityService,
   ) {}
 
   async get(userId: string): Promise<WalletView> {
@@ -181,6 +186,191 @@ export class HostWalletService {
       .where(eq(hostWallets.hostId, host.id))
       .limit(1);
     return again!;
+  }
+
+  // ─── withdrawal ───────────────────────────────────────────────────
+
+  /**
+   * Pay the host from their wallet to their saved payout account. Same
+   * insert-first idempotency pattern as refund: a `payouts` row is written
+   * before Monnify is touched, keyed on (host_id, idempotency_key). A
+   * retried request with the same key returns the cached row instead of
+   * initiating a second disbursement. The Monnify reference is
+   * deterministic (`payout:<row.id>`) so a broken-network retry also hits
+   * provider-side dedup.
+   *
+   * Destination bank details come from `host_wallets` — the host has already
+   * saved a verified payout account via PayoutSection. This closes off a
+   * whole class of "swap the destination bank" attack surface.
+   */
+  async withdraw(
+    userId: string,
+    input: {
+      amountKobo: number;
+      idempotencyKey: string;
+      otpCode: string;
+    },
+  ): Promise<{ payout: Payout; cached: boolean }> {
+    const host = await this.requireHost(userId);
+
+    const provider = this.registry.get("monnify");
+    if (!provider.disburse) {
+      throw new ServiceUnavailableException(
+        "Withdrawals unavailable — provider misconfigured.",
+      );
+    }
+
+    // Load the host's saved payout account. Missing = the host never set one
+    // up. We deliberately re-load inside the transaction as well so we
+    // notice a mid-flight change; this outer read is just for validation
+    // before we ever touch the ledger.
+    const [wallet] = await this.db
+      .select()
+      .from(hostWallets)
+      .where(eq(hostWallets.hostId, host.id))
+      .limit(1);
+    if (
+      !wallet ||
+      !wallet.bankCode ||
+      !wallet.bankAccountNumber ||
+      !wallet.bankAccountName
+    ) {
+      throw new BadRequestException("Set up your payout account first.");
+    }
+
+    // Step 1 — claim the withdrawal by inserting a ledger row.
+    const [inserted] = await this.db
+      .insert(payouts)
+      .values({
+        hostId: host.id,
+        amountKobo: input.amountKobo,
+        destinationBankCode: wallet.bankCode,
+        destinationAccountNumber: wallet.bankAccountNumber,
+        idempotencyKey: input.idempotencyKey,
+        status: "processing",
+      })
+      .onConflictDoNothing({
+        target: [payouts.hostId, payouts.idempotencyKey],
+      })
+      .returning();
+
+    if (!inserted) {
+      const [cached] = await this.db
+        .select()
+        .from(payouts)
+        .where(
+          and(
+            eq(payouts.hostId, host.id),
+            eq(payouts.idempotencyKey, input.idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (!cached) {
+        throw new BadRequestException(
+          "Withdrawal state indeterminate — retry with a fresh idempotency key.",
+        );
+      }
+      return { payout: cached, cached: true };
+    }
+
+    // Step 2 — OTP gate. Failure marks the row so retries surface the same
+    // failure without hitting the OTP service again.
+    try {
+      await this.security.verifyAndConsume(userId, "withdraw_funds", input.otpCode);
+    } catch (err) {
+      await this.markPayoutFailed(inserted.id, "otp_failed");
+      throw err;
+    }
+
+    // Step 3 — advisory lock the host, re-read balance, disburse.
+    try {
+      const finalRow = await this.db.transaction(async (trx) => {
+        await trx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${host.id}, 2))`,
+        );
+
+        const [w] = await trx
+          .select()
+          .from(hostWallets)
+          .where(eq(hostWallets.hostId, host.id))
+          .limit(1);
+        if (!w) {
+          throw new BadRequestException("Host wallet vanished mid-withdrawal.");
+        }
+        if (w.balanceKobo < input.amountKobo) {
+          throw new BadRequestException(
+            `Wallet balance ₦${(w.balanceKobo / 100).toFixed(2)} is below the withdrawal amount.`,
+          );
+        }
+
+        const reference = `payout:${inserted.id}`;
+        const narration = `Bookmi withdrawal ${inserted.id.slice(0, 8)}`;
+
+        const result = await provider.disburse!({
+          reference,
+          amountMinor: input.amountKobo,
+          currency: "NGN",
+          destinationBankCode: w.bankCode!,
+          destinationAccountNumber: w.bankAccountNumber!,
+          narration,
+        });
+        if (result.status === "failed") {
+          throw new BadRequestException(
+            "Withdrawal disbursement failed — no funds were moved.",
+          );
+        }
+
+        const now = new Date();
+        // MVP: treat any non-failed provider status as success and debit
+        // now. A proper implementation would wait for the webhook to flip
+        // `pending/processing → success`; the ledger row is exactly what
+        // that webhook handler would update.
+        const [payoutRow] = await trx
+          .update(payouts)
+          .set({
+            monnifyReference: result.providerReference,
+            status: "success",
+            updatedAt: now,
+          })
+          .where(eq(payouts.id, inserted.id))
+          .returning();
+        if (!payoutRow) {
+          throw new NotFoundException("Payout row disappeared mid-update.");
+        }
+
+        await trx
+          .update(hostWallets)
+          .set({
+            balanceKobo: sql`${hostWallets.balanceKobo} - ${input.amountKobo}`,
+            updatedAt: now,
+          })
+          .where(eq(hostWallets.hostId, host.id));
+
+        this.logger.log(
+          `Withdrawal ${reference} initiated for host ${host.id}: ${input.amountKobo} kobo, providerStatus=${result.status}`,
+        );
+
+        return payoutRow;
+      });
+
+      return { payout: finalRow, cached: false };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "withdrawal failed";
+      await this.markPayoutFailed(inserted.id, reason);
+      throw err;
+    }
+  }
+
+  private async markPayoutFailed(payoutId: string, reason: string): Promise<void> {
+    const trimmed = reason.slice(0, 500);
+    await this.db
+      .update(payouts)
+      .set({
+        status: "failed",
+        failureReason: trimmed,
+        updatedAt: new Date(),
+      })
+      .where(eq(payouts.id, payoutId));
   }
 
   // ─── internals ────────────────────────────────────────────────────

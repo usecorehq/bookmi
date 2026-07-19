@@ -23,6 +23,9 @@ import ResetPasswordTemplate, {
 import ConfirmEmailTemplate, {
   subject as confirmEmailSubject,
 } from "./templates/ConfirmEmailTemplate";
+import SecurityOtpTemplate, {
+  subject as securityOtpSubject,
+} from "./templates/SecurityOtpTemplate";
 
 /**
  * Consumer. Runs in whichever container is registered against the queue —
@@ -72,6 +75,10 @@ export class EmailsProcessor extends WorkerHost {
       case "confirm_email": {
         const html = await render(ConfirmEmailTemplate({ data: job.data }));
         return { subject: confirmEmailSubject(), html };
+      }
+      case "security_otp": {
+        const html = await render(SecurityOtpTemplate({ data: job.data }));
+        return { subject: securityOtpSubject(job.data), html };
       }
       default: {
         // TS exhaustiveness — adding a new kind without a case fails compile.

@@ -1,13 +1,19 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  Res,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
   CurrentUser,
@@ -95,16 +101,44 @@ export class HostBookingsController {
   }
 
   @Post(":id/refund")
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "Refund a paid booking to the customer's bank account. Debits the host wallet by `amountKobo` and marks the booking canceled.",
+      "Refund a paid booking to the customer's bank account. Requires x-idempotency-key + x-otp-code headers. Debits the host wallet by `amountKobo` and marks the booking canceled. A retried request with the same idempotency key hits the cached ledger row instead of a second disbursement.",
   })
   async refund(
     @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(RefundBookingSchema)) body: RefundBookingDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Headers("x-idempotency-key") idempotencyKey: string | undefined,
+    @Headers("x-otp-code") otpCode: string | undefined,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    const booking = await this.bookings.refundBooking(user.sub, id, body);
-    return { booking };
+    if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 100) {
+      throw new BadRequestException(
+        "x-idempotency-key header required (8-100 chars).",
+      );
+    }
+    if (!otpCode || !/^\d{6}$/.test(otpCode)) {
+      throw new BadRequestException(
+        "x-otp-code header required (6 digits).",
+      );
+    }
+    const result = await this.bookings.refundBooking(user.sub, id, {
+      ...body,
+      idempotencyKey,
+      otpCode,
+    });
+    // Cached failure → surface the stored reason as a 400 so the client can
+    // tell the difference from a fresh success.
+    if (result.cached && result.refund.status === "failed") {
+      throw new BadRequestException(
+        result.refund.failureReason ?? "Refund previously failed.",
+      );
+    }
+    if (result.cached && result.refund.status === "processing") {
+      res.status(HttpStatus.ACCEPTED);
+    }
+    return { refund: result.refund, booking: result.booking };
   }
 }

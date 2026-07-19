@@ -7,19 +7,21 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { randomUUID } from "node:crypto";
 import { and, desc, eq, gte, ilike, inArray, lte, or, sql, SQL } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
 import {
   bookings,
   hostProfiles,
   hostWallets,
+  refunds,
   services,
   type Booking,
   type BookingStatus,
+  type Refund,
 } from "../../../drizzle/schema";
 import { EmailsService } from "../../emails/emails.service";
 import { PaymentProviderRegistry } from "../../payments/providers/payment-provider.registry";
+import { SecurityService } from "../../security/security.service";
 import { generateBookingCode } from "../booking-code";
 
 /** Statuses at which a paid booking can still be refunded to the customer. */
@@ -58,6 +60,7 @@ export class HostBookingsService {
     private readonly emails: EmailsService,
     private readonly config: ConfigService,
     private readonly providerRegistry: PaymentProviderRegistry,
+    private readonly security: SecurityService,
   ) {}
 
   async list(
@@ -275,15 +278,19 @@ export class HostBookingsService {
   /**
    * Send funds back to the customer's bank and mark the booking canceled.
    *
-   * Runs the checks, provider verify, disbursement, and DB mutations inside a
-   * single transaction with an advisory lock on the booking id — the same
-   * pattern BookingCheckoutHandler.onSuccess uses, so a stray concurrent
-   * refund on the same booking serializes here rather than double-debiting
-   * the wallet.
+   * Insert-first ledger pattern: a `refunds` row is created BEFORE Monnify
+   * is touched, keyed on (booking_id, idempotency_key). A retried request
+   * with the same key finds the row already exists → we return the cached
+   * response instead of triggering a second disbursement. The Monnify
+   * reference is deterministic (`refund:<row.id>`), so even a broken-network
+   * retry to Monnify hits provider-side dedup.
    *
-   * On any failure (booking not refundable, insufficient wallet balance,
-   * account-name mismatch, provider rejection, disburse returning `failed`)
-   * the transaction rolls back with no side effects.
+   * The OTP verify runs ONCE per idempotency key: the retry path returns
+   * the cached row without requiring a fresh OTP.
+   *
+   * On any failure the ledger row is marked `failed` with a reason — that
+   * way a subsequent retry with the same key returns the failure instead of
+   * silently succeeding.
    */
   async refundBooking(
     userId: string,
@@ -294,8 +301,10 @@ export class HostBookingsService {
       accountName: string;
       amountKobo: number;
       reason?: string;
+      idempotencyKey: string;
+      otpCode: string;
     },
-  ): Promise<Booking> {
+  ): Promise<{ refund: Refund; booking: Booking | null; cached: boolean }> {
     const host = await this.requireHost(userId);
 
     const provider = this.providerRegistry.get("monnify");
@@ -305,119 +314,223 @@ export class HostBookingsService {
       );
     }
 
-    return this.db.transaction(async (trx) => {
-      // Advisory lock scoped to this booking id so concurrent refund attempts
-      // (rapid double-click, stale tab) serialize here — same tag (`1`) as
-      // BookingCheckoutHandler.onSuccess uses on the same booking id.
-      await trx.execute(
-        sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingId}, 1))`,
-      );
-
-      const [booking] = await trx
-        .select()
-        .from(bookings)
-        .where(and(eq(bookings.id, bookingId), eq(bookings.hostId, host.id)))
-        .limit(1);
-      if (!booking) throw new NotFoundException("Booking not found.");
-
-      const currentStatus = booking.status as BookingStatus;
-      if (!REFUNDABLE_STATUSES.has(currentStatus)) {
-        throw new BadRequestException(
-          `Cannot refund a booking that is ${currentStatus}.`,
-        );
-      }
-
-      const alreadyRefunded = booking.refundedAmountKobo ?? 0;
-      const remaining = booking.amountKobo - alreadyRefunded;
-      if (input.amountKobo > remaining) {
-        throw new BadRequestException(
-          `Refund amount exceeds the ₦${(remaining / 100).toFixed(2)} refundable balance.`,
-        );
-      }
-
-      const [wallet] = await trx
-        .select()
-        .from(hostWallets)
-        .where(eq(hostWallets.hostId, host.id))
-        .limit(1);
-      if (!wallet) {
-        throw new BadRequestException(
-          "Host wallet not found — cannot refund without a source of funds.",
-        );
-      }
-      if (wallet.balanceKobo < input.amountKobo) {
-        throw new BadRequestException(
-          `Wallet balance ₦${(wallet.balanceKobo / 100).toFixed(2)} is below the refund amount.`,
-        );
-      }
-
-      // Server-re-verify the (bankCode, accountNumber) with the provider —
-      // stops a malicious client from swapping the destination account
-      // between the payout-form verify step and the submit.
-      const resolved = await provider.resolveBankAccount!({
-        bankCode: input.bankCode,
-        accountNumber: input.accountNumber,
-      });
-      if (
-        !resolved.accountName ||
-        resolved.accountName.trim().toLowerCase() !==
-          input.accountName.trim().toLowerCase()
-      ) {
-        throw new BadRequestException(
-          "Account name mismatch — please re-verify.",
-        );
-      }
-
-      // Client-minted idempotency reference — Monnify dedupes on this, so a
-      // retried request lands on the same disbursement rather than a second
-      // debit. The uuid suffix keeps partial refunds distinct.
-      const reference = `refund:${bookingId}:${randomUUID().slice(0, 8)}`;
-      const narration = `Refund for booking #${booking.code ?? bookingId.slice(0, 8)}`;
-
-      const result = await provider.disburse!({
-        reference,
-        amountMinor: input.amountKobo,
-        currency: "NGN",
+    // Step 1 — try to claim the disbursement by inserting a ledger row. If
+    // the (booking_id, idempotency_key) tuple already exists, ON CONFLICT
+    // no-ops and we fall through to the cache path.
+    const [inserted] = await this.db
+      .insert(refunds)
+      .values({
+        bookingId,
+        hostId: host.id,
+        amountKobo: input.amountKobo,
+        idempotencyKey: input.idempotencyKey,
         destinationBankCode: input.bankCode,
         destinationAccountNumber: input.accountNumber,
-        narration,
-      });
-      if (result.status === "failed") {
+        destinationAccountName: input.accountName,
+        reason: input.reason ?? null,
+        status: "processing",
+      })
+      .onConflictDoNothing({
+        target: [refunds.bookingId, refunds.idempotencyKey],
+      })
+      .returning();
+
+    if (!inserted) {
+      // Insert lost the race — return the cached row as-is.
+      const [cached] = await this.db
+        .select()
+        .from(refunds)
+        .where(
+          and(
+            eq(refunds.bookingId, bookingId),
+            eq(refunds.idempotencyKey, input.idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (!cached) {
         throw new BadRequestException(
-          "Refund disbursement failed — no funds were moved.",
+          "Refund state indeterminate — retry with a fresh idempotency key.",
         );
       }
-
-      const now = new Date();
-      const [updated] = await trx
-        .update(bookings)
-        .set({
-          status: "canceled",
-          refundedAmountKobo: alreadyRefunded + input.amountKobo,
-          refundReason: input.reason ?? null,
-          refundedAt: now,
-          updatedAt: now,
-        })
+      // Also fetch the associated booking so the client can render the
+      // canceled state without a separate round-trip.
+      const [bookingRow] = await this.db
+        .select()
+        .from(bookings)
         .where(eq(bookings.id, bookingId))
-        .returning();
-      if (!updated) {
-        throw new NotFoundException("Booking disappeared mid-refund.");
-      }
+        .limit(1);
+      return { refund: cached, booking: bookingRow ?? null, cached: true };
+    }
 
-      await trx
-        .update(hostWallets)
-        .set({
-          balanceKobo: sql`${hostWallets.balanceKobo} - ${input.amountKobo}`,
-          updatedAt: now,
-        })
-        .where(eq(hostWallets.hostId, host.id));
+    // Step 2 — OTP gate. Failing here marks the ledger row so a retry with
+    // the same key surfaces the same failure instead of hitting the OTP
+    // service again.
+    try {
+      await this.security.verifyAndConsume(userId, "refund_booking", input.otpCode);
+    } catch (err) {
+      await this.markFailed(inserted.id, "otp_failed");
+      throw err;
+    }
 
-      this.logger.log(
-        `Refund ${reference} initiated for booking ${bookingId}: ${input.amountKobo} kobo, status=${result.status}`,
-      );
+    // Step 3 — do the actual disbursement inside a transaction so wallet +
+    // booking updates land atomically if we succeed.
+    try {
+      const finalRefund = await this.db.transaction(async (trx) => {
+        // Advisory lock on booking id — same tag (`1`) as
+        // BookingCheckoutHandler.onSuccess so concurrent refund attempts
+        // serialize here.
+        await trx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${bookingId}, 1))`,
+        );
 
-      return updated;
-    });
+        const [booking] = await trx
+          .select()
+          .from(bookings)
+          .where(and(eq(bookings.id, bookingId), eq(bookings.hostId, host.id)))
+          .limit(1);
+        if (!booking) throw new NotFoundException("Booking not found.");
+
+        const currentStatus = booking.status as BookingStatus;
+        if (!REFUNDABLE_STATUSES.has(currentStatus)) {
+          throw new BadRequestException(
+            `Cannot refund a booking that is ${currentStatus}.`,
+          );
+        }
+
+        const alreadyRefunded = booking.refundedAmountKobo ?? 0;
+        const remaining = booking.amountKobo - alreadyRefunded;
+        if (input.amountKobo > remaining) {
+          throw new BadRequestException(
+            `Refund amount exceeds the ₦${(remaining / 100).toFixed(2)} refundable balance.`,
+          );
+        }
+
+        const [wallet] = await trx
+          .select()
+          .from(hostWallets)
+          .where(eq(hostWallets.hostId, host.id))
+          .limit(1);
+        if (!wallet) {
+          throw new BadRequestException(
+            "Host wallet not found — cannot refund without a source of funds.",
+          );
+        }
+        if (wallet.balanceKobo < input.amountKobo) {
+          throw new BadRequestException(
+            `Wallet balance ₦${(wallet.balanceKobo / 100).toFixed(2)} is below the refund amount.`,
+          );
+        }
+
+        // Server-re-verify (bankCode, accountNumber). Stops a malicious
+        // client from swapping the destination between the payout-form
+        // verify step and the submit.
+        const resolved = await provider.resolveBankAccount!({
+          bankCode: input.bankCode,
+          accountNumber: input.accountNumber,
+        });
+        if (
+          !resolved.accountName ||
+          resolved.accountName.trim().toLowerCase() !==
+            input.accountName.trim().toLowerCase()
+        ) {
+          throw new BadRequestException(
+            "Account name mismatch — please re-verify.",
+          );
+        }
+
+        // Deterministic Monnify reference — same idempotency key → same
+        // ledger row id → same Monnify reference. Monnify dedupes on it,
+        // so a broken-network retry lands on the same disbursement.
+        const reference = `refund:${inserted.id}`;
+        const narration = `Refund for booking #${booking.code ?? bookingId.slice(0, 8)}`;
+
+        const result = await provider.disburse!({
+          reference,
+          amountMinor: input.amountKobo,
+          currency: "NGN",
+          destinationBankCode: input.bankCode,
+          destinationAccountNumber: input.accountNumber,
+          narration,
+        });
+        if (result.status === "failed") {
+          throw new BadRequestException(
+            "Refund disbursement failed — no funds were moved.",
+          );
+        }
+
+        const now = new Date();
+        // MVP note: proper implementation would wait for the webhook to
+        // flip `pending/processing` → `success` before debiting. For now
+        // we treat any non-`failed` provider response as a green light
+        // and debit immediately; the ledger row is exactly what a future
+        // webhook handler updates.
+        const providerStatus = result.status;
+        const ledgerStatus = "success";
+
+        const [refundRow] = await trx
+          .update(refunds)
+          .set({
+            monnifyReference: result.providerReference,
+            status: ledgerStatus,
+            updatedAt: now,
+          })
+          .where(eq(refunds.id, inserted.id))
+          .returning();
+        if (!refundRow) {
+          throw new NotFoundException("Refund row disappeared mid-update.");
+        }
+
+        const [updatedBooking] = await trx
+          .update(bookings)
+          .set({
+            status: "canceled",
+            refundedAmountKobo: alreadyRefunded + input.amountKobo,
+            refundReason: input.reason ?? null,
+            refundedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(bookings.id, bookingId))
+          .returning();
+        if (!updatedBooking) {
+          throw new NotFoundException("Booking disappeared mid-refund.");
+        }
+
+        await trx
+          .update(hostWallets)
+          .set({
+            balanceKobo: sql`${hostWallets.balanceKobo} - ${input.amountKobo}`,
+            updatedAt: now,
+          })
+          .where(eq(hostWallets.hostId, host.id));
+
+        this.logger.log(
+          `Refund ${reference} initiated for booking ${bookingId}: ${input.amountKobo} kobo, providerStatus=${providerStatus}`,
+        );
+
+        return { refund: refundRow, booking: updatedBooking };
+      });
+
+      return { refund: finalRefund.refund, booking: finalRefund.booking, cached: false };
+    } catch (err) {
+      // Any post-OTP failure lands on the ledger row so retries with the
+      // same key surface the same reason instead of trying again.
+      const reason = err instanceof Error ? err.message : "refund failed";
+      await this.markFailed(inserted.id, reason);
+      throw err;
+    }
+  }
+
+  private async markFailed(refundId: string, reason: string): Promise<void> {
+    // Truncate to keep long provider messages from bloating the row.
+    const trimmed = reason.slice(0, 500);
+    await this.db
+      .update(refunds)
+      .set({
+        status: "failed",
+        failureReason: trimmed,
+        updatedAt: new Date(),
+      })
+      .where(eq(refunds.id, refundId));
   }
 
   async findByHostAndId(userId: string, bookingId: string): Promise<Booking> {

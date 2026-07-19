@@ -392,11 +392,94 @@ export const payouts = bookmi.table(
     monnifyReference: text("monnify_reference"),
     status: text("status").notNull().default("initiated"),
     failureReason: text("failure_reason"),
+    /**
+     * Client-supplied idempotency token. Same host + same key = same payout
+     * row — a retried request lands on the cached response instead of a
+     * second disbursement. Nullable so pre-migration rows read as legacy.
+     */
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
     hostIdx: index("po_host_idx").on(t.hostId, t.status),
+    idempotencyUniq: uniqueIndex("po_host_idempotency_uniq")
+      .on(t.hostId, t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} IS NOT NULL`),
+  }),
+);
+
+/**
+ * Per-operation ledger for refund disbursements. Insert-first pattern: a row
+ * is created before Monnify is touched. The (booking_id, idempotency_key)
+ * unique constraint is the retry-safety edge — the same idempotency key from
+ * a client double-click hits the cache and returns the existing row rather
+ * than minting a second disbursement.
+ *
+ * `monnify_reference` is deterministic — `refund:<row.id>` — so a network
+ * retry to Monnify with the same reference is deduped provider-side too.
+ */
+export const refunds = bookmi.table(
+  "refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => bookings.id),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    destinationBankCode: text("destination_bank_code").notNull(),
+    destinationAccountNumber: text("destination_account_number").notNull(),
+    destinationAccountName: text("destination_account_name").notNull(),
+    /** Set after the provider returns — until then, the disbursement isn't dedup-anchored on the provider side. */
+    monnifyReference: text("monnify_reference"),
+    status: text("status").notNull().default("processing"),
+    // processing | success | failed
+    failureReason: text("failure_reason"),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostIdx: index("rf_host_idx").on(t.hostId),
+    bookingIdempotencyUniq: uniqueIndex("rf_booking_idempotency_uniq").on(
+      t.bookingId,
+      t.idempotencyKey,
+    ),
+    monnifyRefUniq: uniqueIndex("rf_monnify_ref_uniq")
+      .on(t.monnifyReference)
+      .where(sql`${t.monnifyReference} IS NOT NULL`),
+  }),
+);
+
+/**
+ * Short-lived OTP challenges for money-out operations (refund + withdraw).
+ * SHA256(code) is stored — the plaintext lives only in the user's inbox for
+ * the 5-minute window. `failed_attempts` self-locks the challenge at 5 to
+ * kill brute-force.
+ */
+export const securityChallenges = bookmi.table(
+  "security_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    purpose: text("purpose").notNull(),
+    // 'refund_booking' | 'withdraw_funds'
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    failedAttempts: integer("failed_attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userPurposeExpiryIdx: index("sc_user_purpose_expiry_idx").on(
+      t.userId,
+      t.purpose,
+      t.expiresAt,
+    ),
   }),
 );
 
@@ -418,6 +501,12 @@ export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
+export type Refund = typeof refunds.$inferSelect;
+export type NewRefund = typeof refunds.$inferInsert;
+export type SecurityChallenge = typeof securityChallenges.$inferSelect;
+
+export type RefundStatus = "processing" | "success" | "failed";
+export type SecurityChallengePurpose = "refund_booking" | "withdraw_funds";
 
 export type BookingStatus =
   | "pending"

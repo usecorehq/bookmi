@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Booking } from "@bookmi/shared-types";
+import type { Booking, Refund } from "@bookmi/shared-types";
 import { apiFetch } from "@/lib/api";
 
 /**
@@ -24,10 +24,13 @@ export function useSendPaymentLink() {
 /**
  * POST /api/hosts/me/bookings/:id/refund
  *
- * Debits the host wallet by `amountKobo` and initiates a Monnify disbursement
- * to the customer-supplied bank account. The booking flips to `canceled`
- * (with the refund audit trail attached) on the successful disbursement
- * webhook.
+ * The client mints an idempotency key up-front (uuid v4 in the modal); a
+ * retried request with the same key hits the server-side ledger cache
+ * instead of a second disbursement. The OTP code is single-use — a fresh
+ * one is required for a NEW idempotency key, not for a retry.
+ *
+ * Headers, not body, so the shape mirrors the withdraw endpoint (which
+ * takes no other body params beyond amount).
  */
 export interface RefundBookingInput {
   bankCode: string;
@@ -42,14 +45,25 @@ export function useRefundBooking() {
   return useMutation({
     mutationFn: async ({
       bookingId,
+      idempotencyKey,
+      otpCode,
       input,
     }: {
       bookingId: string;
+      idempotencyKey: string;
+      otpCode: string;
       input: RefundBookingInput;
     }) => {
-      return apiFetch<{ booking: Booking }>(
+      return apiFetch<{ refund: Refund; booking: Booking | null }>(
         `/hosts/me/bookings/${bookingId}/refund`,
-        { method: "POST", body: JSON.stringify(input) },
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+          headers: {
+            "X-Idempotency-Key": idempotencyKey,
+            "X-OTP-Code": otpCode,
+          },
+        },
       );
     },
     onSuccess: () => {
