@@ -4,6 +4,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  HttpException,
+  HttpStatus,
 } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
@@ -13,6 +15,7 @@ import {
   services,
   type Booking,
 } from "../../../drizzle/schema";
+import type { PublicHostView, PublicServiceView } from "@bookmi/shared-types";
 import { generateBookingCode } from "../../hosts/booking-code";
 import { CustomersService } from "../../hosts/services/customers.service";
 import { PaymentsService } from "../../payments/services/payments.service";
@@ -113,6 +116,151 @@ export class PublicCheckoutService {
     });
 
     return { booking, payment };
+  }
+
+  /**
+   * Payment-link landing surface (`/pay/:bookingId`). No auth — the booking
+   * id is the capability. Returns just enough to render the summary card +
+   * a "Pay ₦X" button; internal fields (host user id, wallet, notes) never
+   * leak.
+   *
+   * 404 when the booking doesn't exist; 410 Gone when it's anything other
+   * than pending — the link should stop working once payment lands so a
+   * stale email doesn't accidentally re-open a paid booking.
+   */
+  async getPendingBookingForPayment(bookingId: string): Promise<{
+    booking: PublicBookingView;
+    host: PublicHostView;
+    service: PublicServiceView;
+  }> {
+    const { booking, host, service } = await this.loadBookingContext(bookingId);
+    if (booking.status !== "pending") {
+      throw new HttpException(
+        "This payment link is no longer valid.",
+        HttpStatus.GONE,
+      );
+    }
+    return {
+      booking: this.toPublicBookingView(booking),
+      host: this.toPublicHostView(host),
+      service: this.toPublicServiceView(service),
+    };
+  }
+
+  /**
+   * Kick off a fresh payment intent against the existing pending booking.
+   * `purposeId` reuses the booking id so BookingCheckoutHandler.onSuccess
+   * confirms THIS booking on settlement — no new row is created.
+   *
+   * Idempotency key is fixed per booking (`resume:<id>`) so a second click
+   * on the pay button rehydrates the same provider intent rather than
+   * spinning up a new Monnify reference.
+   */
+  async resumeCheckout(bookingId: string): Promise<{ payment: InitiateResult }> {
+    const { booking, host } = await this.loadBookingContext(bookingId);
+    if (booking.status !== "pending") {
+      throw new HttpException(
+        "This booking can no longer be paid.",
+        HttpStatus.GONE,
+      );
+    }
+
+    const payment = await this.payments.initiate({
+      purposeType: BOOKING_CHECKOUT_PURPOSE,
+      purposeId: booking.id,
+      amountMinor: booking.amountKobo,
+      currency: "NGN",
+      countryCode: "NG",
+      businessId: host.id,
+      email: booking.customerEmail,
+      // Anonymous — booking id doubles as the "user" for idempotency lookup,
+      // mirroring the storefront checkout path.
+      initiatorUserId: booking.id,
+      idempotencyKey: `resume:${booking.id}`,
+      checkoutMode: "popup",
+      metadata: {
+        bookingCode: booking.code ?? undefined,
+        via: "payment_link",
+      },
+    });
+
+    return { payment };
+  }
+
+  private async loadBookingContext(bookingId: string): Promise<{
+    booking: Booking;
+    host: typeof hostProfiles.$inferSelect;
+    service: typeof services.$inferSelect;
+  }> {
+    const [booking] = await this.db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.id, bookingId))
+      .limit(1);
+    if (!booking) throw new NotFoundException("Booking not found.");
+
+    const [host] = await this.db
+      .select()
+      .from(hostProfiles)
+      .where(eq(hostProfiles.id, booking.hostId))
+      .limit(1);
+    if (!host) throw new NotFoundException("Host not found.");
+
+    const firstServiceId = booking.serviceIds?.[0];
+    if (!firstServiceId) {
+      throw new NotFoundException("Booking has no service attached.");
+    }
+    const [service] = await this.db
+      .select()
+      .from(services)
+      .where(eq(services.id, firstServiceId))
+      .limit(1);
+    if (!service) throw new NotFoundException("Service not found.");
+
+    return { booking, host, service };
+  }
+
+  private toPublicBookingView(b: Booking): PublicBookingView {
+    return {
+      id: b.id,
+      code: b.code,
+      status: b.status as PublicBookingView["status"],
+      customerName: b.customerName,
+      customerEmail: b.customerEmail,
+      amountKobo: b.amountKobo,
+      slotStartAt: b.slotStartAt ? b.slotStartAt.toISOString() : null,
+      durationMinutes: b.durationMinutes,
+    };
+  }
+
+  private toPublicHostView(
+    host: typeof hostProfiles.$inferSelect,
+  ): PublicHostView {
+    return {
+      slug: host.slug,
+      displayName: host.displayName,
+      bio: host.bio,
+      avatarUrl: host.avatarUrl,
+      accentColor: host.accentColor,
+      operatingHours: host.operatingHours as PublicHostView["operatingHours"],
+      phone: host.phone,
+      address: host.address,
+    };
+  }
+
+  private toPublicServiceView(
+    svc: typeof services.$inferSelect,
+  ): PublicServiceView {
+    return {
+      id: svc.id,
+      type: svc.type as PublicServiceView["type"],
+      slug: svc.slug,
+      title: svc.title,
+      description: svc.description,
+      priceKobo: svc.priceKobo,
+      durationMinutes: svc.durationMinutes,
+      payWhatYouWant: svc.payWhatYouWant,
+    };
   }
 
   private resolveAmount(
@@ -221,4 +369,24 @@ export class PublicCheckoutService {
 
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
+}
+
+/** Public projection of a booking exposed on the payment-link surface. */
+export interface PublicBookingView {
+  id: string;
+  code: string | null;
+  status:
+    | "pending"
+    | "confirmed"
+    | "canceled"
+    | "failed"
+    | "arrived"
+    | "seated"
+    | "completed"
+    | "no_show";
+  customerName: string;
+  customerEmail: string;
+  amountKobo: number;
+  slotStartAt: string | null;
+  durationMinutes: number;
 }

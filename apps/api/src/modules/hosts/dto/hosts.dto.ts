@@ -205,3 +205,24 @@ export const SavePayoutAccountSchema = z
   })
   .strict();
 export class SavePayoutAccountDto extends createZodDto(SavePayoutAccountSchema) {}
+
+// ─── Refund ────────────────────────────────────────────────────────────
+
+/**
+ * POST /hosts/me/bookings/:id/refund — sends money back to the customer's
+ * bank account and debits the host wallet. `accountName` is what the client
+ * saw after auto-verify; the server re-resolves it against the provider and
+ * bounces the request on a mismatch.
+ */
+export const RefundBookingSchema = z
+  .object({
+    bankCode: z.string().min(1).max(10),
+    accountNumber: z
+      .string()
+      .regex(/^\d{10}$/, "Account number must be 10 digits"),
+    accountName: z.string().min(1).max(120),
+    amountKobo: z.number().int().positive(),
+    reason: z.string().max(500).optional(),
+  })
+  .strict();
+export class RefundBookingDto extends createZodDto(RefundBookingSchema) {}

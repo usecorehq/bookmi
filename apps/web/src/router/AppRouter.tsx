@@ -19,6 +19,7 @@ import WalletPage from "@/pages/dashboard/WalletPage";
 import CustomersPage from "@/pages/dashboard/CustomersPage";
 import CustomerDetailPage from "@/pages/dashboard/CustomerDetailPage";
 import HostPublicPage from "@/pages/public/HostPublicPage";
+import BookingPaymentPage from "@/pages/pay/BookingPaymentPage";
 
 /**
  * Bookmi routes:
@@ -57,6 +58,8 @@ export function AppRouter() {
             <Route path="profile" element={<ProfilePage />} />
           </Route>
         </Route>
+
+        <Route path="/pay/:bookingId" element={<BookingPaymentPage />} />
 
         <Route path="/:slug" element={<HostPublicPage />} />
         <Route path="/:slug/:serviceSlug" element={<HostPublicPage />} />

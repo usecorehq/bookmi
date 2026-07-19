@@ -104,6 +104,30 @@ export interface Bank {
   logoUrl?: string | null;
 }
 
+/**
+ * Single-transfer disbursement input. Providers wire this to their outbound
+ * bank-transfer API (Monnify's `POST /api/v2/disbursements/single`).
+ *
+ * `reference` is client-minted and MUST be unique per attempted transfer —
+ * providers use it as the idempotency key. Callers should mint something
+ * like `refund:<bookingId>:<uuidv4-slice>` and persist it before firing.
+ */
+export interface DisburseInput {
+  reference: string;
+  amountMinor: number;
+  currency?: string;
+  destinationBankCode: string;
+  destinationAccountNumber: string;
+  /** Bank-statement narration (short, e.g. "Refund for booking #ABCD"). */
+  narration?: string;
+}
+
+export interface DisburseResult {
+  providerReference: string;
+  status: "pending" | "processing" | "success" | "failed";
+  raw?: unknown;
+}
+
 export interface PaymentProvider {
   readonly code: PaymentProviderCode;
 
@@ -135,6 +159,13 @@ export interface PaymentProvider {
     bankCode: string;
     accountNumber: string;
   }): Promise<{ accountName: string; bankName: string }>;
+
+  /**
+   * Initiate a single-transfer disbursement. Providers that don't support
+   * transfers (or that we haven't wired transfers for yet) omit this — the
+   * caller must check for undefined before invoking.
+   */
+  disburse?(input: DisburseInput): Promise<DisburseResult>;
 }
 
 export const PAYMENT_PROVIDERS = Symbol("PAYMENT_PROVIDERS");

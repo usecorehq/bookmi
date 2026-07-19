@@ -14,6 +14,9 @@ import BookingConfirmedHostTemplate, {
 import BookingConfirmedCustomerTemplate, {
   subject as bookingConfirmedCustomerSubject,
 } from "./templates/BookingConfirmedCustomerTemplate";
+import BookingPaymentLinkTemplate, {
+  subject as bookingPaymentLinkSubject,
+} from "./templates/BookingPaymentLinkTemplate";
 import ResetPasswordTemplate, {
   subject as resetPasswordSubject,
 } from "./templates/ResetPasswordTemplate";
@@ -57,6 +60,10 @@ export class EmailsProcessor extends WorkerHost {
       case "booking_confirmed_customer": {
         const html = await render(BookingConfirmedCustomerTemplate({ data: job.data }));
         return { subject: bookingConfirmedCustomerSubject(job.data), html };
+      }
+      case "booking_payment_link": {
+        const html = await render(BookingPaymentLinkTemplate({ data: job.data }));
+        return { subject: bookingPaymentLinkSubject(job.data), html };
       }
       case "reset_password": {
         const html = await render(ResetPasswordTemplate({ data: job.data }));

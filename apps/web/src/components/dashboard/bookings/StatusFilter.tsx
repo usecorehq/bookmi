@@ -14,7 +14,9 @@ const STATUSES: Array<{ value: BookingStatus | "all"; label: string }> = [
 
 const SOURCES: Array<{ value: BookingSource | "all"; label: string }> = [
   { value: "all", label: "All sources" },
-  { value: "storefront", label: "Storefront" },
+  // "storefront" stays as the DB value; the chip label mirrors what
+  // BookingDetailModal renders in its SourcePill map ("Public").
+  { value: "storefront", label: "Public" },
   { value: "dashboard", label: "Dashboard" },
 ];
 

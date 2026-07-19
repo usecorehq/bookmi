@@ -29,6 +29,16 @@ export interface Booking {
   netToHostKobo: Kobo;
   status: BookingStatus;
   paymentTransactionId: string | null;
+  /**
+   * Cumulative amount refunded to the customer, in kobo. Null when the
+   * booking has never been refunded. Partial refunds accumulate here; a
+   * full refund equals `amountKobo`.
+   */
+  refundedAmountKobo: Kobo | null;
+  /** Host-supplied free-form note attached at refund time. */
+  refundReason: string | null;
+  /** Timestamp of the most recent refund, or null. */
+  refundedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

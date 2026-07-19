@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -10,9 +11,12 @@ import {
 } from "lucide-react";
 import type { Booking, Customer, Service } from "@bookmi/shared-types";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
+import { BookingDetailModal } from "@/components/dashboard/bookings/BookingDetailModal";
 import { useCustomer, useCustomerBookings } from "@/hooks/useCustomers";
 import { useHostServices } from "@/hooks/useHostServices";
 import { formatNaira } from "@/lib/utils";
+
+type Tab = "bookings" | "tips";
 
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -59,7 +63,21 @@ function Loaded({
   bookingsPending: boolean;
   services: Service[];
 }) {
-  const serviceMap = new Map(services.map((s) => [s.id, s]));
+  const serviceMap = useMemo(
+    () => new Map(services.map((s) => [s.id, s])),
+    [services],
+  );
+  const [tab, setTab] = useState<Tab>("bookings");
+  const [selected, setSelected] = useState<Booking | null>(null);
+
+  const bookingRows = useMemo(
+    () => bookings.filter((b) => b.slotStartAt),
+    [bookings],
+  );
+  const tipRows = useMemo(
+    () => bookings.filter((b) => !b.slotStartAt),
+    [bookings],
+  );
 
   return (
     <>
@@ -132,93 +150,150 @@ function Loaded({
         />
       </div>
 
-      {/* Bookings + tips history — split so the host can tell scheduled
-          appointments apart from Buy-Me-a-Coffee-style payments. */}
-      <HistorySection
-        title="Bookings"
-        icon={<CalendarDays className="w-4 h-4" />}
-        emptyLabel="No bookings recorded yet."
-        pending={bookingsPending}
-        rows={bookings.filter((b) => b.slotStartAt)}
-        serviceMap={serviceMap}
-      />
+      {/* Segmented pill tabs — mirror BookingsPage so scheduled appointments
+          stay visually distinct from Buy-Me-a-Coffee-style tips. */}
+      <div className="mb-5 inline-flex bg-gray-100 p-1">
+        <TabButton active={tab === "bookings"} onClick={() => setTab("bookings")}>
+          <CalendarDays className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+          Bookings · {bookingRows.length}
+        </TabButton>
+        <TabButton active={tab === "tips"} onClick={() => setTab("tips")}>
+          <Coffee className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+          Tips · {tipRows.length}
+        </TabButton>
+      </div>
 
-      <HistorySection
-        title="Tips"
-        icon={<Coffee className="w-4 h-4" />}
-        emptyLabel="No tips received yet."
-        pending={bookingsPending}
-        rows={bookings.filter((b) => !b.slotStartAt)}
-        serviceMap={serviceMap}
-        isTipSection
-      />
+      {tab === "bookings" ? (
+        <HistorySection
+          emptyLabel="No bookings recorded yet."
+          pending={bookingsPending}
+          rows={bookingRows}
+          serviceMap={serviceMap}
+          onRowClick={(b) => setSelected(b)}
+        />
+      ) : (
+        <HistorySection
+          emptyLabel="No tips received yet."
+          pending={bookingsPending}
+          rows={tipRows}
+          serviceMap={serviceMap}
+          isTipSection
+        />
+      )}
+
+      {selected && (
+        <BookingDetailModal
+          booking={selected}
+          services={services}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </>
   );
 }
 
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-1.5 text-sm transition ${
+        active
+          ? "bg-white text-foreground font-medium shadow-sm"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function HistorySection({
-  title,
-  icon,
   emptyLabel,
   pending,
   rows,
   serviceMap,
   isTipSection,
+  onRowClick,
 }: {
-  title: string;
-  icon: React.ReactNode;
   emptyLabel: string;
   pending: boolean;
   rows: Booking[];
   serviceMap: Map<string, Service>;
   isTipSection?: boolean;
+  onRowClick?: (booking: Booking) => void;
 }) {
   return (
-    <div className="card p-6 mt-6">
-      <div className="flex items-center gap-2 mb-4">
-        {icon}
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <span className="text-xs text-muted-foreground">· {rows.length}</span>
-      </div>
+    <div className="card p-6">
       {pending ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : rows.length === 0 ? (
         <div className="text-sm text-muted-foreground">{emptyLabel}</div>
       ) : (
         <ul className="divide-y divide-gray-200">
-          {rows.map((b) => (
-            <li key={b.id} className="py-3 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {b.code && (
-                    <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5">
-                      #{b.code}
+          {rows.map((b) => {
+            const content = (
+              <>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {b.code && (
+                      <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5">
+                        #{b.code}
+                      </span>
+                    )}
+                    <span className="font-medium truncate">
+                      {serviceTitles(b.serviceIds, serviceMap)}
                     </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {b.slotStartAt
+                      ? formatDate(b.slotStartAt)
+                      : formatDate(b.createdAt)}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-medium">
+                    {formatNaira(b.amountKobo)}
+                  </div>
+                  {isTipSection ? (
+                    <span className="inline-block px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-amber-50 text-amber-800 mt-1">
+                      Tip
+                    </span>
+                  ) : (
+                    <StatusPill status={b.status} />
                   )}
-                  <span className="font-medium truncate">
-                    {serviceTitles(b.serviceIds, serviceMap)}
-                  </span>
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {b.slotStartAt
-                    ? formatDate(b.slotStartAt)
-                    : formatDate(b.createdAt)}
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-sm font-medium">
-                  {formatNaira(b.amountKobo)}
-                </div>
-                {isTipSection ? (
-                  <span className="inline-block px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-amber-50 text-amber-800 mt-1">
-                    Tip
-                  </span>
+              </>
+            );
+
+            // Bookings open the shared detail drawer; tips are read-only
+            // rows on this page (they get their own drilldown from TipsPage).
+            return (
+              <li key={b.id}>
+                {onRowClick ? (
+                  <button
+                    type="button"
+                    onClick={() => onRowClick(b)}
+                    className="w-full py-3 flex items-center justify-between gap-4 text-left hover:bg-gray-50 -mx-2 px-2 transition"
+                  >
+                    {content}
+                  </button>
                 ) : (
-                  <StatusPill status={b.status} />
+                  <div className="py-3 flex items-center justify-between gap-4">
+                    {content}
+                  </div>
                 )}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

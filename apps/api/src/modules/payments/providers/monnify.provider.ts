@@ -9,6 +9,8 @@ import { ConfigService } from "@nestjs/config";
 import { createHash, createHmac } from "node:crypto";
 import type {
   Bank,
+  DisburseInput,
+  DisburseResult,
   InitializeInput,
   InitializeResult,
   NormalizedStatus,
@@ -289,6 +291,63 @@ export class MonnifyProvider implements PaymentProvider {
     };
   }
 
+  /**
+   * Initiate a single bank transfer via Monnify's disbursement API. Used by
+   * the refund flow to send money back to the customer's bank account.
+   *
+   * `POST /api/v2/disbursements/single` — auth is the bearer token, same as
+   * the collection endpoints. Requires a linked source wallet (`sourceAccountNumber`)
+   * that Monnify draws funds from; see `MONNIFY_DISBURSEMENT_WALLET`.
+   *
+   * Monnify's status vocabulary maps into our four-state enum:
+   *   SUCCESS/COMPLETED → success, PENDING → pending, PROCESSING → processing,
+   *   everything else (FAILED, REVERSED, EXPIRED, ...) → failed.
+   */
+  async disburse(input: DisburseInput): Promise<DisburseResult> {
+    const sourceAccountNumber = this.config.get<string>("monnify.disbursementWallet");
+    if (!sourceAccountNumber) {
+      throw new BadRequestException(
+        "Disbursement wallet not configured — set MONNIFY_DISBURSEMENT_WALLET.",
+      );
+    }
+
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const body = {
+      amount: minorToMajor(input.amountMinor),
+      reference: input.reference,
+      narration: input.narration ?? "Bookmi disbursement",
+      destinationBankCode: input.destinationBankCode,
+      destinationAccountNumber: input.destinationAccountNumber,
+      currency: input.currency ?? "NGN",
+      sourceAccountNumber,
+    };
+
+    const res = await fetch(`${baseUrl}/api/v2/disbursements/single`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const parsed = (await res.json().catch(() => null)) as MonnifyDisburseBody | null;
+    if (!parsed?.requestSuccessful) {
+      this.logger.warn(
+        `Monnify disburse failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Monnify disburse failed");
+    }
+
+    return {
+      providerReference: parsed.responseBody?.reference ?? input.reference,
+      status: mapDisburseStatus(parsed.responseBody?.status),
+      raw: parsed,
+    };
+  }
+
   // ─── auth ────────────────────────────────────────────────────────
 
   private async getAccessToken(): Promise<string> {
@@ -410,6 +469,22 @@ function normalizeStatus(providerStatus: string | undefined): NormalizedStatus {
       return "pending";
     default:
       return "pending";
+  }
+}
+
+function mapDisburseStatus(
+  providerStatus: string | undefined,
+): DisburseResult["status"] {
+  switch (providerStatus?.toUpperCase()) {
+    case "SUCCESS":
+    case "COMPLETED":
+      return "success";
+    case "PENDING":
+      return "pending";
+    case "PROCESSING":
+      return "processing";
+    default:
+      return "failed";
   }
 }
 
@@ -607,5 +682,20 @@ interface MonnifyValidateBody {
     accountName?: string;
     bankCode?: string;
     bankName?: string;
+  };
+}
+
+interface MonnifyDisburseBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseBody?: {
+    /** Echoed idempotency reference — same value we minted client-side. */
+    reference?: string;
+    /** SUCCESS | COMPLETED | PENDING | PROCESSING | FAILED | REVERSED | EXPIRED. */
+    status?: string;
+    amount?: number | string;
+    fee?: number | string;
+    transactionDescription?: string;
+    dateCreated?: string;
   };
 }

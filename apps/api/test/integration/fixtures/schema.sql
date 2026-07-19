@@ -219,4 +219,7 @@ ALTER TABLE "bookmi"."customers" ADD CONSTRAINT "customers_host_id_host_profiles
 CREATE INDEX "cust_host_idx" ON "bookmi"."customers" USING btree ("host_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "cust_host_phone_uniq" ON "bookmi"."customers" USING btree ("host_id","phone") WHERE "bookmi"."customers"."phone" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "cust_host_name_idx" ON "bookmi"."customers" USING btree ("host_id","name");--> statement-breakpoint
-ALTER TABLE "bookmi"."bookings" ADD CONSTRAINT "bookings_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "bookmi"."customers"("id") ON DELETE set null ON UPDATE no action;
+ALTER TABLE "bookmi"."bookings" ADD CONSTRAINT "bookings_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "bookmi"."customers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "bookmi"."bookings" ADD COLUMN "refunded_amount_kobo" bigint;--> statement-breakpoint
+ALTER TABLE "bookmi"."bookings" ADD COLUMN "refund_reason" text;--> statement-breakpoint
+ALTER TABLE "bookmi"."bookings" ADD COLUMN "refunded_at" timestamp with time zone;

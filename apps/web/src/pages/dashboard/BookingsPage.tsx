@@ -135,16 +135,21 @@ function AllBookingsTab({
           <SourceFilter value={source} onChange={setSource} />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 pt-1">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              className="input-field pl-10"
-              placeholder="Search name, phone, or email…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              autoComplete="off"
-            />
+          <div>
+            <label className="block text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+              Search
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                className="input-field pl-10"
+                placeholder="Search name, phone, or email…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
           </div>
           <div>
             <label className="block text-[10px] uppercase tracking-wide text-muted-foreground mb-1">

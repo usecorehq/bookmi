@@ -19,6 +19,8 @@ import {
   CreateHostBookingSchema,
   ListBookingsQueryDto,
   ListBookingsQuerySchema,
+  RefundBookingDto,
+  RefundBookingSchema,
   UpdateHostBookingDto,
   UpdateHostBookingSchema,
 } from "../dto/hosts.dto";
@@ -77,6 +79,32 @@ export class HostBookingsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const booking = await this.bookings.updateStatus(user.sub, id, body);
+    return { booking };
+  }
+
+  @Post(":id/send-payment-link")
+  @ApiOperation({
+    summary:
+      "Email the customer a unique /pay/:bookingId link that resumes checkout against this pending booking. Rejects non-pending bookings.",
+  })
+  async sendPaymentLink(
+    @Param("id", ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.bookings.sendPaymentLink(user.sub, id);
+  }
+
+  @Post(":id/refund")
+  @ApiOperation({
+    summary:
+      "Refund a paid booking to the customer's bank account. Debits the host wallet by `amountKobo` and marks the booking canceled.",
+  })
+  async refund(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(RefundBookingSchema)) body: RefundBookingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const booking = await this.bookings.refundBooking(user.sub, id, body);
     return { booking };
   }
 }

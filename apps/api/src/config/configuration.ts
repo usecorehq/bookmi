@@ -28,6 +28,13 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
       secretKey: env.MONNIFY_SECRET_KEY!,
       contractCode: env.MONNIFY_CONTRACT_CODE!,
       webhookSecret: env.MONNIFY_WEBHOOK_SECRET!,
+      /**
+       * Linked Monnify disbursement wallet account number — the source of
+       * funds for outbound transfers (refunds, host payouts). Required for
+       * MonnifyProvider.disburse(); if unset, the call throws so callers see
+       * a clear misconfiguration error instead of a Monnify 4xx.
+       */
+      disbursementWallet: env.MONNIFY_DISBURSEMENT_WALLET,
     },
 
     platform: {

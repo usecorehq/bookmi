@@ -5,11 +5,11 @@ import {
   Check,
   Share2,
   ArrowUpRight,
-  Coffee,
   Wallet as WalletIcon,
   CalendarDays,
   TrendingUp,
 } from "lucide-react";
+import type { Booking } from "@bookmi/shared-types";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHostWallet } from "@/hooks/useHostWallet";
@@ -19,7 +19,7 @@ import { formatNaira } from "@/lib/utils";
 export default function DashboardHomePage() {
   const { profile } = useAuth();
   const walletQ = useHostWallet();
-  const bookingsQ = useHostBookings({ limit: 5 });
+  const bookingsQ = useHostBookings({ limit: 20 });
 
   const walletBalance = walletQ.data?.wallet.balanceKobo ?? 0;
   const recentBookings = bookingsQ.data ?? [];
@@ -30,10 +30,20 @@ export default function DashboardHomePage() {
   const recentThirty = (walletQ.data?.recentBookings ?? []).filter(
     (b) => new Date(b.createdAt).getTime() >= thirtyDaysAgo,
   );
-  const earnings30d = recentThirty
-    .filter((b) => b.status === "confirmed" || b.status === "completed")
-    .reduce((s, b) => s + b.netToHostKobo, 0);
-  const bookings30d = recentThirty.length;
+  const paidThirty = recentThirty.filter(
+    (b) => b.status === "confirmed" || b.status === "completed",
+  );
+  const earnings30d = paidThirty.reduce((s, b) => s + b.netToHostKobo, 0);
+  const bookingInflows30d = paidThirty.filter((b) => b.slotStartAt != null).length;
+  const tipInflows30d = paidThirty.filter((b) => b.slotStartAt == null).length;
+  const totalInflows30d = bookingInflows30d + tipInflows30d;
+  const inflowsHint =
+    totalInflows30d === 0
+      ? "No inflows yet"
+      : `${bookingInflows30d} bookings · ${tipInflows30d} tips`;
+
+  const recentBookingRows = recentBookings.filter((b) => b.slotStartAt != null).slice(0, 5);
+  const recentTipRows = recentBookings.filter((b) => b.slotStartAt == null).slice(0, 5);
 
   return (
     <div>
@@ -58,65 +68,92 @@ export default function DashboardHomePage() {
         />
         <StatCard
           icon={<CalendarDays className="w-5 h-5" />}
-          label="Bookings · 30 days"
-          value={String(bookings30d)}
-          hint="Any status"
+          label="Inflows · 30 days"
+          value={String(totalInflows30d)}
+          hint={inflowsHint}
         />
       </div>
 
       {/* Share card */}
       {profile?.slug && <ShareCard slug={profile.slug} />}
 
-      {/* Recent bookings */}
-      <div className="card p-6 mt-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Recent bookings</h2>
-          <Link
-            to="/dashboard/bookings"
-            className="text-sm text-primary hover:underline inline-flex items-center gap-1"
-          >
-            See all <ArrowUpRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-        {bookingsQ.isPending ? (
-          <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : recentBookings.length === 0 ? (
-          <div className="text-sm text-muted-foreground">
-            No bookings yet. Share your page to get started.
-          </div>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {recentBookings.map((b) => {
-              const isTip = !b.slotStartAt;
-              return (
-                <li key={b.id} className="py-3 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium truncate">{b.customerName}</span>
-                      {isTip && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-amber-50 text-amber-800">
-                          <Coffee className="w-3 h-3" />
-                          Tip
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground truncate mt-0.5">
-                      {b.code ? `#${b.code} · ` : ""}
-                      {b.slotStartAt
-                        ? new Date(b.slotStartAt).toLocaleString()
-                        : new Date(b.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-sm font-medium">{formatNaira(b.amountKobo)}</div>
-                    <StatusPill status={b.status} />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+      {/* Recent inflows — split into bookings + tips */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <RecentInflowsCard
+          title="Recent bookings"
+          seeAllTo="/dashboard/bookings"
+          rows={recentBookingRows}
+          isPending={bookingsQ.isPending}
+          emptyText="No bookings yet. Share your page to get started."
+        />
+        <RecentInflowsCard
+          title="Recent tips & donations"
+          seeAllTo="/dashboard/tips"
+          rows={recentTipRows}
+          isPending={bookingsQ.isPending}
+          emptyText="No tips yet. Add a Buy-me-a-Coffee-style service to get started."
+        />
       </div>
+    </div>
+  );
+}
+
+function RecentInflowsCard({
+  title,
+  seeAllTo,
+  rows,
+  isPending,
+  emptyText,
+}: {
+  title: string;
+  seeAllTo: string;
+  rows: Booking[];
+  isPending: boolean;
+  emptyText: string;
+}) {
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <h2 className="text-lg font-semibold">
+          {title}
+          {rows.length > 0 && (
+            <span className="text-muted-foreground font-normal"> · {rows.length}</span>
+          )}
+        </h2>
+        <Link
+          to={seeAllTo}
+          className="text-sm text-primary hover:underline inline-flex items-center gap-1 shrink-0"
+        >
+          See all <ArrowUpRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+      {isPending ? (
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-sm text-muted-foreground">{emptyText}</div>
+      ) : (
+        <ul className="divide-y divide-gray-200">
+          {rows.map((b) => (
+            <li key={b.id} className="py-3 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium truncate">{b.customerName}</span>
+                </div>
+                <div className="text-xs text-muted-foreground truncate mt-0.5">
+                  {b.code ? `#${b.code} · ` : ""}
+                  {b.slotStartAt
+                    ? new Date(b.slotStartAt).toLocaleString()
+                    : new Date(b.createdAt).toLocaleString()}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-sm font-medium">{formatNaira(b.amountKobo)}</div>
+                <StatusPill status={b.status} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

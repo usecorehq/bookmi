@@ -87,6 +87,15 @@ class EnvVars {
   @IsString()
   MONNIFY_WEBHOOK_SECRET!: string;
 
+  /**
+   * Linked disbursement wallet account number that funds outbound transfers
+   * (refunds, host payouts). Sandbox provisions one automatically once
+   * "Wallet as Source" is enabled; prod uses the merchant's operations wallet.
+   */
+  @IsString()
+  @IsOptional()
+  MONNIFY_DISBURSEMENT_WALLET?: string;
+
   // ── Platform ──
   @IsInt()
   @Min(0)

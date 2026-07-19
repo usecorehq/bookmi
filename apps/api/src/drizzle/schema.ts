@@ -360,6 +360,16 @@ export const bookings = bookmi.table(
     paymentTransactionId: uuid("payment_transaction_id").references(
       () => paymentTransactions.id,
     ),
+    /**
+     * Cumulative amount refunded to the customer, in kobo. Nullable so
+     * pre-refund rows read as untouched (vs. a coerced 0). Partial refunds
+     * accumulate here; a full refund equals `amountKobo`.
+     */
+    refundedAmountKobo: bigint("refunded_amount_kobo", { mode: "number" }),
+    /** Host-supplied free-form note attached at refund time — audit trail. */
+    refundReason: text("refund_reason"),
+    /** Timestamp of the most recent refund. Null until the first refund lands. */
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

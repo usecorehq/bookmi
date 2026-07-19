@@ -11,6 +11,7 @@
 export type EmailJob =
   | BookingConfirmedHostJob
   | BookingConfirmedCustomerJob
+  | BookingPaymentLinkJob
   | ResetPasswordJob
   | ConfirmEmailJob;
   
@@ -46,6 +47,12 @@ export interface BookingConfirmedCustomerJob {
   data: BookingConfirmedCustomerData;
 }
 
+export interface BookingPaymentLinkJob {
+  kind: "booking_payment_link";
+  to: string;
+  data: BookingPaymentLinkData;
+}
+
 // ─── Data shapes ───────────────────────────────────────────────────────
 
 export interface BookingConfirmedHostData {
@@ -72,4 +79,15 @@ export interface BookingConfirmedCustomerData {
   amountKobo: number;
   bookingCode: string;
   publicPageUrl: string;
+}
+
+export interface BookingPaymentLinkData {
+  customerName: string;
+  hostDisplayName: string;
+  serviceTitle: string;
+  amountKobo: number;
+  bookingCode: string;
+  slotStartAt: string | null;
+  /** Full URL like `${webBaseUrl}/pay/${bookingId}` where the customer completes payment. */
+  payUrl: string;
 }

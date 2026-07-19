@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Coffee, Search } from "lucide-react";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -93,6 +94,7 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
 }
 
 function TipRow({ tip, services }: { tip: Booking; services: Service[] }) {
+  const navigate = useNavigate();
   const serviceMap = useMemo(
     () => new Map(services.map((s) => [s.id, s])),
     [services],
@@ -100,8 +102,20 @@ function TipRow({ tip, services }: { tip: Booking; services: Service[] }) {
   const titles = tip.serviceIds
     .map((id) => serviceMap.get(id)?.title ?? "—")
     .join(" · ");
-  return (
-    <li className="py-4 flex items-center justify-between gap-4">
+
+  // Every checkout resolves-or-creates a customer, so customerId is nearly
+  // always set. Legacy rows without one stay visible but non-clickable —
+  // there's no destination to send the host to. The field lives on the DB
+  // row and rides through the API but isn't in the shared Booking type yet,
+  // so we read it via a narrow cast.
+  const customerId = (tip as { customerId?: string | null }).customerId ?? null;
+  const clickable = customerId != null;
+  const goToCustomer = () => {
+    if (customerId) navigate(`/dashboard/customers/${customerId}`);
+  };
+
+  const inner = (
+    <>
       <div className="min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           {tip.code && (
@@ -125,6 +139,24 @@ function TipRow({ tip, services }: { tip: Booking; services: Service[] }) {
           Received
         </div>
       </div>
+    </>
+  );
+
+  return (
+    <li>
+      {clickable ? (
+        <button
+          type="button"
+          onClick={goToCustomer}
+          className="w-full py-4 flex items-center justify-between gap-4 text-left hover:bg-gray-50 -mx-2 px-2 transition cursor-pointer"
+        >
+          {inner}
+        </button>
+      ) : (
+        <div className="py-4 flex items-center justify-between gap-4">
+          {inner}
+        </div>
+      )}
     </li>
   );
 }
