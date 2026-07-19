@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
 import {
   bookings,
@@ -62,7 +62,7 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
     const [booking] = await this.db
       .select({
         id: bookings.id,
-        serviceId: bookings.serviceId,
+        serviceIds: bookings.serviceIds,
         status: bookings.status,
       })
       .from(bookings)
@@ -76,14 +76,20 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
         `Booking ${input.purposeId} is ${booking.status}, cannot start a new checkout`,
       );
     }
+    if (!booking.serviceIds || booking.serviceIds.length === 0) {
+      throw new BadRequestException(`Booking ${input.purposeId} has no services attached`);
+    }
 
-    const [service] = await this.db
+    const rows = await this.db
       .select({ id: services.id, active: services.active })
       .from(services)
-      .where(eq(services.id, booking.serviceId))
-      .limit(1);
-    if (!service) throw new NotFoundException(`Service for booking ${booking.id} vanished`);
-    if (!service.active) throw new BadRequestException("Service is not currently accepting bookings");
+      .where(inArray(services.id, booking.serviceIds));
+    if (rows.length !== booking.serviceIds.length) {
+      throw new NotFoundException(`One or more services for booking ${booking.id} vanished`);
+    }
+    if (rows.some((r) => !r.active)) {
+      throw new BadRequestException("One or more selected services are not currently accepting bookings");
+    }
   }
 
   async resolveInitiate(input: ResolveInitiateInput): Promise<ResolvedInitiate> {
@@ -91,38 +97,50 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
       throw new BadRequestException("booking_checkout requires purposeId (booking id)");
     }
 
-    const [row] = await this.db
+    const [booking] = await this.db
       .select({
         hostId: bookings.hostId,
+        serviceIds: bookings.serviceIds,
+      })
+      .from(bookings)
+      .where(eq(bookings.id, input.purposeId))
+      .limit(1);
+    if (!booking) throw new NotFoundException(`Booking ${input.purposeId} not found`);
+
+    const rows = await this.db
+      .select({
+        id: services.id,
         priceKobo: services.priceKobo,
         payWhatYouWant: services.payWhatYouWant,
       })
-      .from(bookings)
-      .innerJoin(services, eq(services.id, bookings.serviceId))
-      .where(eq(bookings.id, input.purposeId))
-      .limit(1);
-    if (!row) throw new NotFoundException(`Booking ${input.purposeId} not found`);
+      .from(services)
+      .where(inArray(services.id, booking.serviceIds));
 
-    const listed = row.priceKobo;
+    // Sum the listed prices across every selected service — that's the floor.
+    // Multi-service bookings currently don't support pay-what-you-want per-item;
+    // if ANY selected service is PWYW, the entire booking becomes PWYW with a
+    // floor equal to the sum of listed prices.
+    const listedTotal = rows.reduce((sum, r) => sum + r.priceKobo, 0);
+    const anyPwyw = rows.some((r) => r.payWhatYouWant);
+
     let amountMinor: number;
-    if (row.payWhatYouWant) {
-      // Client sets the amount, but never below the listed price.
+    if (anyPwyw) {
       const requested = Math.floor(input.amountMinor);
-      if (requested < listed) {
+      if (requested < listedTotal) {
         throw new BadRequestException(
-          `Amount ${requested} kobo is below the ₦${(listed / 100).toFixed(2)} floor for this service`,
+          `Amount ${requested} kobo is below the ₦${(listedTotal / 100).toFixed(2)} floor for this booking`,
         );
       }
       amountMinor = requested;
     } else {
-      amountMinor = listed;
+      amountMinor = listedTotal;
     }
 
     return {
       amountMinor,
       currency: "NGN",
       // Route audit + host-scoped queries through business_id.
-      businessId: row.hostId,
+      businessId: booking.hostId,
     };
   }
 

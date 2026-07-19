@@ -8,6 +8,13 @@
       "when": 1784410298022,
       "tag": "0000_bookmi_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784443013097,
+      "tag": "0001_hosts_operating_hours_bookings_code",
+      "breakpoints": true
     }
   ]
 }

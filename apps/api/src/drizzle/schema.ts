@@ -190,6 +190,22 @@ export const paymentEventRelations = relations(paymentEvents, ({ one }) => ({
 // SECTION 2: BOOKMI DOMAIN
 // ═══════════════════════════════════════════════════════════════════════
 
+/**
+ * Default operating hours — Mon–Sun 09:00–18:00. Frontend renders the grid
+ * on ProfilePage so the host can edit per weekday, close a day, etc.
+ * Shape matches what the availability generator (public/availability.service.ts)
+ * expects: { [weekday]: { open: "HH:mm", close: "HH:mm", closed: boolean } }.
+ */
+const DEFAULT_OPERATING_HOURS = {
+  monday: { open: "09:00", close: "18:00", closed: false },
+  tuesday: { open: "09:00", close: "18:00", closed: false },
+  wednesday: { open: "09:00", close: "18:00", closed: false },
+  thursday: { open: "09:00", close: "18:00", closed: false },
+  friday: { open: "09:00", close: "18:00", closed: false },
+  saturday: { open: "09:00", close: "18:00", closed: false },
+  sunday: { open: "09:00", close: "18:00", closed: false },
+};
+
 export const hostProfiles = bookmi.table(
   "host_profiles",
   {
@@ -200,6 +216,11 @@ export const hostProfiles = bookmi.table(
     bio: text("bio"),
     avatarUrl: text("avatar_url"),
     accentColor: text("accent_color"),
+    /** Per-weekday hours. See DEFAULT_OPERATING_HOURS for shape. */
+    operatingHours: jsonb("operating_hours").notNull().default(DEFAULT_OPERATING_HOURS),
+    /** Optional phone/address shown on the public page. */
+    phone: text("phone"),
+    address: text("address"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -248,21 +269,37 @@ export const bookings = bookmi.table(
   "bookings",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    serviceId: uuid("service_id")
-      .notNull()
-      .references(() => services.id),
     hostId: uuid("host_id")
       .notNull()
       .references(() => hostProfiles.id),
+    /**
+     * The services this booking covers. UUID[] to support multi-select in the
+     * customer wizard (see images 11–13). Cannot be a Postgres FK on an array
+     * type — integrity enforced at write time in HostsService/CheckoutService.
+     */
+    serviceIds: uuid("service_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    /** Sum of chosen services' durations; drives slot generation + overlap check. */
+    durationMinutes: integer("duration_minutes").notNull().default(30),
+    /**
+     * Short customer-facing handle like "X8-GAFJ". Generated in the service
+     * layer; kept globally UNIQUE.
+     */
+    code: text("code").unique(),
+    /** 'storefront' = created via public wizard; 'dashboard' = host created it manually. */
+    source: text("source").notNull().default("storefront"),
     customerName: text("customer_name").notNull(),
     customerEmail: text("customer_email").notNull(),
     customerPhone: text("customer_phone"),
+    /** Free-form notes the customer typed in step 3 of the wizard. */
+    customerNotes: text("customer_notes"),
     slotStartAt: timestamp("slot_start_at", { withTimezone: true }),
     amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
     platformFeeKobo: bigint("platform_fee_kobo", { mode: "number" }).notNull().default(0),
     netToHostKobo: bigint("net_to_host_kobo", { mode: "number" }).notNull().default(0),
     status: text("status").notNull().default("pending"),
-    // pending | confirmed | canceled | failed
+    // pending | confirmed | canceled | failed | arrived | seated | completed | no_show
+    // Enforced at the DTO layer via Zod. Kept as plain text so admin scripts can
+    // fix outliers without dropping a CHECK constraint.
     paymentTransactionId: uuid("payment_transaction_id").references(
       () => paymentTransactions.id,
     ),
@@ -271,7 +308,6 @@ export const bookings = bookmi.table(
   },
   (t) => ({
     hostStatusIdx: index("bk_host_status_idx").on(t.hostId, t.status),
-    serviceIdx: index("bk_service_idx").on(t.serviceId),
     slotIdx: index("bk_slot_idx").on(t.hostId, t.slotStartAt),
   }),
 );
@@ -314,3 +350,34 @@ export type HostWallet = typeof hostWallets.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
+
+export type BookingStatus =
+  | "pending"
+  | "confirmed"
+  | "canceled"
+  | "failed"
+  | "arrived"
+  | "seated"
+  | "completed"
+  | "no_show";
+
+export type BookingSource = "storefront" | "dashboard";
+
+/** Structural type for host_profiles.operating_hours. */
+export interface OperatingHours {
+  monday: DayHours;
+  tuesday: DayHours;
+  wednesday: DayHours;
+  thursday: DayHours;
+  friday: DayHours;
+  saturday: DayHours;
+  sunday: DayHours;
+}
+
+export interface DayHours {
+  /** HH:mm 24-hour, e.g. "09:00". */
+  open: string;
+  /** HH:mm 24-hour, e.g. "18:00". */
+  close: string;
+  closed: boolean;
+}
