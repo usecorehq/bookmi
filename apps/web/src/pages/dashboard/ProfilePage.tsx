@@ -4,6 +4,7 @@ import { Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { FormMessage } from "@/components/ui/FormMessage";
+import { AvatarUploader } from "@/components/upload/AvatarUploader";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDebounce } from "@/hooks/useDebounce";
 import { apiFetch } from "@/lib/api";
@@ -23,6 +24,7 @@ interface FormState {
   displayName: string;
   slug: string;
   bio: string;
+  avatarUrl: string;
   accentColor: string;
   phone: string;
   address: string;
@@ -37,6 +39,7 @@ function toForm(profile: HostProfile & { wallet: { bankCode: string | null; bank
     displayName: profile.displayName,
     slug: profile.slug,
     bio: profile.bio ?? "",
+    avatarUrl: profile.avatarUrl ?? "",
     accentColor: profile.accentColor ?? "#7856FF",
     phone: profile.phone ?? "",
     address: profile.address ?? "",
@@ -111,6 +114,7 @@ export default function ProfilePage() {
     if (form.displayName !== original.displayName) patch.displayName = form.displayName;
     if (form.slug !== original.slug) patch.slug = form.slug;
     if (form.bio !== original.bio) patch.bio = form.bio || null;
+    if (form.avatarUrl !== original.avatarUrl) patch.avatarUrl = form.avatarUrl || null;
     if (form.accentColor !== original.accentColor) patch.accentColor = form.accentColor;
     if (form.phone !== original.phone) patch.phone = form.phone || null;
     if (form.address !== original.address) patch.address = form.address || null;
@@ -140,6 +144,22 @@ export default function ProfilePage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Identity */}
         <Section title="Identity">
+          <Field label="Photo" hint="Shown on your public page. JPG, PNG, or WebP · up to 3 MB.">
+            <AvatarUploader
+              value={form.avatarUrl || null}
+              onUploaded={(url) => setForm({ ...form, avatarUrl: url })}
+              initials={form.displayName
+                .split(/\s+/)
+                .map((s) => s[0])
+                .filter(Boolean)
+                .slice(0, 2)
+                .join("")
+                .toUpperCase()}
+              accentColor={form.accentColor}
+              folder="bookmi/avatars"
+              size={80}
+            />
+          </Field>
           <Field label="Display name">
             <input
               className="input-field"
