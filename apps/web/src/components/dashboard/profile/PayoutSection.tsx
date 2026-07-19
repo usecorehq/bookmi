@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Check, Loader2, Wallet } from "lucide-react";
+import { AlertCircle, Check, Loader2, Pencil, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { FormMessage } from "@/components/ui/FormMessage";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -11,16 +11,18 @@ import {
 } from "@/hooks/useBanks";
 
 /**
- * Self-contained payout-details form.
+ * Self-contained payout-details form with two modes:
  *
- * Renders inside the Profile page's "Payout details" tab. Fetches the
- * current wallet + bank list, verifies (bankCode, accountNumber) via a
- * debounced provider call the moment both are filled, then lets the host
- * commit the verified triple to `host_wallets`.
+ *   - **view**: default when the wallet already has a saved payout account.
+ *     Renders the saved bank + account + name as read-only rows with a
+ *     Verified pill; no verify API call fires.
+ *   - **edit**: entered by clicking "Edit" (or by default when nothing is
+ *     saved yet). Reveals the bank dropdown + account number input; the
+ *     400ms-debounced verify effect only runs in this mode so the name
+ *     resolver isn't hammered on every tab visit.
  *
- * The account-name field is derived from the verification response — never
- * user-editable. The whole point is to store the correct triple so future
- * payouts land in the right hands.
+ * The account-name is never user-editable — it's derived from the
+ * verification response.
  */
 export function PayoutSection() {
   const walletQuery = useHostWallet();
@@ -28,51 +30,46 @@ export function PayoutSection() {
   const verifyMutation = useVerifyBankAccount();
   const saveMutation = useSavePayoutAccount();
 
+  const wallet = walletQuery.data?.wallet;
+  const savedBankCode = wallet?.bankCode ?? "";
+  const savedAccountNumber = wallet?.bankAccountNumber ?? "";
+  const savedAccountName = wallet?.bankAccountName ?? "";
+  const hasSavedPayout = !!(savedBankCode && savedAccountNumber && savedAccountName);
+
+  const [editing, setEditing] = useState<boolean>(false);
   const [bankCode, setBankCode] = useState<string>("");
   const [accountNumber, setAccountNumber] = useState<string>("");
   const [resolvedName, setResolvedName] = useState<string>("");
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastVerified, setLastVerified] = useState<{
+    bankCode: string;
+    accountNumber: string;
+  } | null>(null);
 
-  const wallet = walletQuery.data?.wallet;
-  const savedBankCode = wallet?.bankCode ?? "";
-  const savedAccountNumber = wallet?.bankAccountNumber ?? "";
-  const savedAccountName = wallet?.bankAccountName ?? "";
-
-  // Prefill on first successful load — but only if the local form is still
-  // untouched. Otherwise we'd stomp a half-filled edit whenever the wallet
-  // query refetches.
+  // On first wallet load, decide the initial mode. If nothing's saved,
+  // drop straight into edit so the host can enter details without a click.
   useEffect(() => {
     if (!wallet) return;
-    setBankCode((prev) => prev || savedBankCode);
-    setAccountNumber((prev) => prev || savedAccountNumber);
-    setResolvedName((prev) => prev || savedAccountName);
-    // Deliberately no dep on the state setters — this fires once per wallet
-    // identity change.
+    if (!hasSavedPayout) {
+      setEditing(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet?.hostId, savedBankCode, savedAccountNumber, savedAccountName]);
+  }, [wallet?.hostId]);
 
   const debouncedAccountNumber = useDebounce(accountNumber, 400);
   const debouncedBankCode = useDebounce(bankCode, 400);
   const isTenDigits = /^\d{10}$/.test(debouncedAccountNumber);
-  const ready = !!debouncedBankCode && isTenDigits;
+  const ready = editing && !!debouncedBankCode && isTenDigits;
 
-  // Snapshot the last (code, number) pair we've resolved, so a repeat verify
-  // against the same inputs — e.g. after the wallet query refetches — is a
-  // no-op instead of a wasteful provider round-trip.
-  const [lastVerified, setLastVerified] = useState<{
-    bankCode: string;
-    accountNumber: string;
-  } | null>(() =>
-    savedBankCode && savedAccountNumber
-      ? { bankCode: savedBankCode, accountNumber: savedAccountNumber }
-      : null,
-  );
-
+  // Auto-verify ONLY while editing. `lastVerified` guards against redundant
+  // provider calls when the same (code, number) tuple is entered again.
   useEffect(() => {
     if (!ready) {
-      setResolvedName("");
-      setVerifyError(null);
+      if (editing) {
+        setResolvedName("");
+        setVerifyError(null);
+      }
       return;
     }
     if (
@@ -108,14 +105,17 @@ export function PayoutSection() {
     return () => {
       cancelled = true;
     };
-    // verifyMutation is stable; adding it triggers re-run loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, debouncedBankCode, debouncedAccountNumber]);
+  }, [ready, editing, debouncedBankCode, debouncedAccountNumber]);
 
   const banks = banksQuery.data ?? [];
   const selectedBank = useMemo(
     () => banks.find((b) => b.code === bankCode),
     [banks, bankCode],
+  );
+  const savedBank = useMemo(
+    () => banks.find((b) => b.code === savedBankCode),
+    [banks, savedBankCode],
   );
 
   const hasResolved = !!resolvedName;
@@ -124,7 +124,37 @@ export function PayoutSection() {
     accountNumber !== savedAccountNumber ||
     resolvedName !== savedAccountName;
   const canSave =
-    hasResolved && differsFromSaved && !saveMutation.isPending && !verifyMutation.isPending;
+    editing &&
+    hasResolved &&
+    differsFromSaved &&
+    !saveMutation.isPending &&
+    !verifyMutation.isPending;
+
+  const startEditing = () => {
+    setEditing(true);
+    setSaveError(null);
+    // Prefill from saved so the host can tweak one field without retyping;
+    // seed `lastVerified` so the effect doesn't re-hit the provider for
+    // the exact tuple that was already resolved on the server.
+    setBankCode(savedBankCode);
+    setAccountNumber(savedAccountNumber);
+    setResolvedName(savedAccountName);
+    setVerifyError(null);
+    setLastVerified(
+      savedBankCode && savedAccountNumber
+        ? { bankCode: savedBankCode, accountNumber: savedAccountNumber }
+        : null,
+    );
+  };
+
+  const cancelEditing = () => {
+    setEditing(false);
+    setBankCode("");
+    setAccountNumber("");
+    setResolvedName("");
+    setVerifyError(null);
+    setSaveError(null);
+  };
 
   const handleSave = async () => {
     setSaveError(null);
@@ -135,20 +165,18 @@ export function PayoutSection() {
         accountName: resolvedName,
       });
       toast.success("Payout account saved");
+      setEditing(false);
+      // Reset local scratch state — the view state re-reads from wallet on next render.
+      setBankCode("");
+      setAccountNumber("");
+      setResolvedName("");
+      setLastVerified(null);
     } catch (err) {
       setSaveError(readError(err));
     }
   };
 
-  const walletLoading = walletQuery.isLoading;
   const isVerifying = verifyMutation.isPending;
-  // Show the "Verified" pill only when the current form matches what's saved
-  // AND the saved row has a resolved name — i.e. nothing pending.
-  const showVerifiedBadge =
-    !!savedAccountName &&
-    savedBankCode === bankCode &&
-    savedAccountNumber === accountNumber &&
-    resolvedName === savedAccountName;
 
   return (
     <div className="card p-6">
@@ -157,7 +185,7 @@ export function PayoutSection() {
           <h2 className="text-lg font-semibold">Payout details</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Where withdrawals land.</p>
         </div>
-        {showVerifiedBadge && (
+        {hasSavedPayout && !editing && (
           <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-800 bg-green-100">
             <Check className="w-3 h-3" />
             Verified
@@ -165,8 +193,15 @@ export function PayoutSection() {
         )}
       </div>
 
-      {walletLoading ? (
+      {walletQuery.isLoading ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
+      ) : !editing && hasSavedPayout ? (
+        <ViewState
+          bankName={savedBank?.name ?? "Bank"}
+          accountNumber={savedAccountNumber}
+          accountName={savedAccountName}
+          onEdit={startEditing}
+        />
       ) : (
         <div className="space-y-4">
           <Field label="Bank">
@@ -205,8 +240,6 @@ export function PayoutSection() {
               className="input-field"
               value={accountNumber}
               onChange={(e) => {
-                // Numeric-only filter — mirrors the digits the input mode
-                // hints for on mobile, but enforces it on desktop too.
                 const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
                 setAccountNumber(digits);
                 setResolvedName("");
@@ -259,7 +292,17 @@ export function PayoutSection() {
 
           {saveError && <FormMessage variant="error" message={saveError} />}
 
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end items-center gap-2 pt-2">
+            {hasSavedPayout && (
+              <button
+                type="button"
+                onClick={cancelEditing}
+                disabled={saveMutation.isPending}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="button"
               disabled={!canSave}
@@ -271,6 +314,61 @@ export function PayoutSection() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ViewState({
+  bankName,
+  accountNumber,
+  accountName,
+  onEdit,
+}: {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <ReadonlyRow label="Bank" value={bankName} />
+      <ReadonlyRow label="Account number" value={accountNumber} mono />
+      <ReadonlyRow label="Account name" value={accountName} />
+      <div className="flex justify-end pt-2">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="btn-secondary inline-flex items-center gap-2"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+          Edit
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReadonlyRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+        {label}
+      </div>
+      <div
+        className={`px-3 py-2.5 bg-gray-50 border border-gray-200 text-sm ${
+          mono ? "font-mono" : ""
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }
