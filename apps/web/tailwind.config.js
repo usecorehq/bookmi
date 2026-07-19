@@ -17,9 +17,13 @@ export default {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        // Qorelly primary — bright violet, matches qore-menu's tokens
         primary: {
-          DEFAULT: "hsl(var(--primary))",
+          DEFAULT: "var(--color-primary, #7856FF)",
           foreground: "hsl(var(--primary-foreground))",
+          hover: "var(--color-primary-hover, #6B4DE6)",
+          light: "var(--color-primary-light, #F0ECFF)",
+          dark: "var(--color-primary-dark, #5A3FD9)",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -46,6 +50,12 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Pill for buttons, sharp everywhere else — Square/Revolut vibe qore-menu uses
+        button: "9999px",
+        card: "0px",
+      },
+      boxShadow: {
+        medium: "0 4px 16px rgba(0, 0, 0, 0.08)",
       },
     },
   },
