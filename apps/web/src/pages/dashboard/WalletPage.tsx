@@ -213,7 +213,7 @@ function PayoutAccountCard({ wallet }: { wallet: HostWallet }) {
           <div className="font-medium text-red-800">No payout account set</div>
           <p className="text-sm text-red-700 mt-1">
             Withdrawals need a bank account.{" "}
-            <Link to="/dashboard/profile" className="underline font-medium">
+            <Link to="/dashboard/profile?tab=payout" className="underline font-medium">
               Set up in Profile → Payout details
             </Link>
           </p>
@@ -232,7 +232,7 @@ function PayoutAccountCard({ wallet }: { wallet: HostWallet }) {
           </p>
         </div>
         <Link
-          to="/dashboard/profile"
+          to="/dashboard/profile?tab=payout"
           className="text-sm text-primary hover:underline inline-flex items-center gap-1"
         >
           Edit <ArrowUpRight className="w-3.5 h-3.5" />
@@ -435,7 +435,7 @@ function WithdrawModal({
               <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
               <div className="text-sm text-red-700">
                 No payout account set.{" "}
-                <Link to="/dashboard/profile" className="underline font-medium">
+                <Link to="/dashboard/profile?tab=payout" className="underline font-medium">
                   Set up in Profile
                 </Link>
                 .
