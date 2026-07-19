@@ -11,10 +11,12 @@ import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
 import {
   bookings,
   customers,
+  hostProfiles,
   hostWallets,
   services,
   type PaymentTransaction,
 } from "../../../drizzle/schema";
+import { EmailsService } from "../../emails/emails.service";
 import type { VerifyResult } from "../providers/payment-provider.interface";
 import type {
   PaymentPurposeHandler,
@@ -53,6 +55,7 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
   constructor(
     @Inject(SUPABASE_DB) private readonly db: SupabaseDb,
     private readonly config: ConfigService,
+    private readonly emails: EmailsService,
   ) {}
 
   async authorizeInitiate(input: ResolveInitiateInput): Promise<void> {
@@ -158,6 +161,8 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
     const platformFeeKobo = Math.round((paidKobo * feeBps) / 10_000);
     const netToHostKobo = paidKobo - platformFeeKobo;
 
+    let didConfirm = false;
+
     // Two writes must land atomically: booking transition + wallet credit.
     // Advisory-lock the booking id so concurrent verify + webhook finalizers
     // for the same booking serialize here and only one credit sticks.
@@ -204,6 +209,8 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
         })
         .where(eq(bookings.id, purposeId));
 
+      didConfirm = true;
+
       // Wallet upsert — a host's wallet row is expected to exist from
       // signup, but bookmi is tolerant during early runs.
       await trx
@@ -240,6 +247,120 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
           .where(eq(customers.id, current.customerId));
       }
     });
+
+    // Emails fire post-tx so a SMTP hiccup can't unwind a settled booking.
+    // Only fire on the FIRST confirm — replays (webhook after verify already
+    // landed) skip the tx block and shouldn't re-send.
+    if (didConfirm) {
+      await this.enqueueConfirmationEmails(purposeId, paidKobo, netToHostKobo);
+    }
+  }
+
+  /**
+   * Fetch host + service context and enqueue both confirmation emails.
+   * Wrapped in try/catch so a Redis/queue outage never bubbles up — the
+   * booking is already confirmed and the wallet already credited. If the
+   * emails don't send, the host can still see the booking in the dashboard
+   * and the customer has the success screen with a booking code.
+   */
+  private async enqueueConfirmationEmails(
+    bookingId: string,
+    paidKobo: number,
+    netToHostKobo: number,
+  ): Promise<void> {
+    try {
+      const [row] = await this.db
+        .select({
+          bookingId: bookings.id,
+          bookingCode: bookings.code,
+          slotStartAt: bookings.slotStartAt,
+          customerName: bookings.customerName,
+          customerEmail: bookings.customerEmail,
+          customerPhone: bookings.customerPhone,
+          serviceIds: bookings.serviceIds,
+          hostId: bookings.hostId,
+          hostSlug: hostProfiles.slug,
+          hostDisplayName: hostProfiles.displayName,
+          hostPhone: hostProfiles.phone,
+          hostAddress: hostProfiles.address,
+          hostUserId: hostProfiles.userId,
+        })
+        .from(bookings)
+        .innerJoin(hostProfiles, eq(hostProfiles.id, bookings.hostId))
+        .where(eq(bookings.id, bookingId))
+        .limit(1);
+
+      if (!row) {
+        this.logger.warn(`Booking ${bookingId} vanished before email enqueue.`);
+        return;
+      }
+
+      const serviceRows = row.serviceIds.length
+        ? await this.db
+            .select({
+              title: services.title,
+              priceKobo: services.priceKobo,
+              durationMinutes: services.durationMinutes,
+            })
+            .from(services)
+            .where(inArray(services.id, row.serviceIds))
+        : [];
+
+      // Host email lives on auth.users — not in bookmi schema. A raw query
+      // keeps this handler free of a Supabase admin dependency.
+      const hostEmailRow = await this.db.execute<{ email: string }>(
+        sql`SELECT email FROM auth.users WHERE id = ${row.hostUserId} LIMIT 1`,
+      );
+      const hostEmail = hostEmailRow[0]?.email ?? null;
+
+      const webBaseUrl = this.config.get<string>("web.baseUrl") ?? "http://localhost:5173";
+
+      const slotStartAt = row.slotStartAt ? row.slotStartAt.toISOString() : null;
+
+      if (hostEmail) {
+        await this.emails.enqueue({
+          kind: "booking_confirmed_host",
+          to: hostEmail,
+          data: {
+            hostDisplayName: row.hostDisplayName,
+            customerName: row.customerName,
+            customerPhone: row.customerPhone ?? "",
+            customerEmail: row.customerEmail,
+            services: serviceRows,
+            slotStartAt,
+            amountKobo: paidKobo,
+            netToHostKobo,
+            bookingCode: row.bookingCode ?? "",
+            manageBookingUrl: `${webBaseUrl}/dashboard/bookings`,
+          },
+        });
+      } else {
+        this.logger.warn(`No host email on file for host ${row.hostId} — skipping host email.`);
+      }
+
+      await this.emails.enqueue({
+        kind: "booking_confirmed_customer",
+        to: row.customerEmail,
+        data: {
+          customerName: row.customerName,
+          hostDisplayName: row.hostDisplayName,
+          hostSlug: row.hostSlug,
+          hostPhone: row.hostPhone,
+          hostAddress: row.hostAddress,
+          services: serviceRows,
+          slotStartAt,
+          amountKobo: paidKobo,
+          bookingCode: row.bookingCode ?? "",
+          publicPageUrl: `${webBaseUrl}/${row.hostSlug}`,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to enqueue confirmation emails for booking ${bookingId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   async onFailure(tx: PaymentTransaction, _result?: VerifyResult): Promise<void> {
