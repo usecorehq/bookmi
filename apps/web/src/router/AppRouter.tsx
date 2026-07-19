@@ -14,6 +14,7 @@ import DashboardHomePage from "@/pages/dashboard/DashboardHomePage";
 import ProfilePage from "@/pages/dashboard/ProfilePage";
 import ServicesPage from "@/pages/dashboard/ServicesPage";
 import BookingsPage from "@/pages/dashboard/BookingsPage";
+import TipsPage from "@/pages/dashboard/TipsPage";
 import WalletPage from "@/pages/dashboard/WalletPage";
 import CustomersPage from "@/pages/dashboard/CustomersPage";
 import CustomerDetailPage from "@/pages/dashboard/CustomerDetailPage";
@@ -49,6 +50,7 @@ export function AppRouter() {
             <Route index element={<DashboardHomePage />} />
             <Route path="services" element={<ServicesPage />} />
             <Route path="bookings" element={<BookingsPage />} />
+            <Route path="tips" element={<TipsPage />} />
             <Route path="customers" element={<CustomersPage />} />
             <Route path="customers/:id" element={<CustomerDetailPage />} />
             <Route path="wallet" element={<WalletPage />} />

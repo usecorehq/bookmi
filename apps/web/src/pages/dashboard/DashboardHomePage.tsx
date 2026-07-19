@@ -5,6 +5,7 @@ import {
   Check,
   Share2,
   ArrowUpRight,
+  Coffee,
   Wallet as WalletIcon,
   CalendarDays,
   TrendingUp,
@@ -85,21 +86,34 @@ export default function DashboardHomePage() {
           </div>
         ) : (
           <ul className="divide-y divide-gray-200">
-            {recentBookings.map((b) => (
-              <li key={b.id} className="py-3 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{b.customerName}</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {b.code ? `#${b.code} · ` : ""}
-                    {b.slotStartAt ? new Date(b.slotStartAt).toLocaleString() : "No slot"}
+            {recentBookings.map((b) => {
+              const isTip = !b.slotStartAt;
+              return (
+                <li key={b.id} className="py-3 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium truncate">{b.customerName}</span>
+                      {isTip && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-amber-50 text-amber-800">
+                          <Coffee className="w-3 h-3" />
+                          Tip
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate mt-0.5">
+                      {b.code ? `#${b.code} · ` : ""}
+                      {b.slotStartAt
+                        ? new Date(b.slotStartAt).toLocaleString()
+                        : new Date(b.createdAt).toLocaleString()}
+                    </div>
                   </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-medium">{formatNaira(b.amountKobo)}</div>
-                  <StatusPill status={b.status} />
-                </div>
-              </li>
-            ))}
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-medium">{formatNaira(b.amountKobo)}</div>
+                    <StatusPill status={b.status} />
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

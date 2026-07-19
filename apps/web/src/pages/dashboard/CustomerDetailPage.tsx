@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CalendarDays,
+  Coffee,
   Mail,
   Phone,
   TrendingUp,
@@ -131,51 +132,96 @@ function Loaded({
         />
       </div>
 
-      {/* Bookings history */}
-      <div className="card p-6">
-        <h2 className="text-lg font-semibold mb-4">Bookings history</h2>
-        {bookingsPending ? (
-          <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : bookings.length === 0 ? (
-          <div className="text-sm text-muted-foreground">
-            No bookings recorded yet.
-          </div>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {bookings.map((b) => (
-              <li
-                key={b.id}
-                className="py-3 flex items-center justify-between gap-4"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {b.code && (
-                      <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5">
-                        #{b.code}
-                      </span>
-                    )}
-                    <span className="font-medium truncate">
-                      {serviceTitles(b.serviceIds, serviceMap)}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {b.slotStartAt
-                      ? formatDate(b.slotStartAt)
-                      : formatDate(b.createdAt)}
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-medium">
-                    {formatNaira(b.amountKobo)}
-                  </div>
-                  <StatusPill status={b.status} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {/* Bookings + tips history — split so the host can tell scheduled
+          appointments apart from Buy-Me-a-Coffee-style payments. */}
+      <HistorySection
+        title="Bookings"
+        icon={<CalendarDays className="w-4 h-4" />}
+        emptyLabel="No bookings recorded yet."
+        pending={bookingsPending}
+        rows={bookings.filter((b) => b.slotStartAt)}
+        serviceMap={serviceMap}
+      />
+
+      <HistorySection
+        title="Tips"
+        icon={<Coffee className="w-4 h-4" />}
+        emptyLabel="No tips received yet."
+        pending={bookingsPending}
+        rows={bookings.filter((b) => !b.slotStartAt)}
+        serviceMap={serviceMap}
+        isTipSection
+      />
     </>
+  );
+}
+
+function HistorySection({
+  title,
+  icon,
+  emptyLabel,
+  pending,
+  rows,
+  serviceMap,
+  isTipSection,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  emptyLabel: string;
+  pending: boolean;
+  rows: Booking[];
+  serviceMap: Map<string, Service>;
+  isTipSection?: boolean;
+}) {
+  return (
+    <div className="card p-6 mt-6">
+      <div className="flex items-center gap-2 mb-4">
+        {icon}
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <span className="text-xs text-muted-foreground">· {rows.length}</span>
+      </div>
+      {pending ? (
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-sm text-muted-foreground">{emptyLabel}</div>
+      ) : (
+        <ul className="divide-y divide-gray-200">
+          {rows.map((b) => (
+            <li key={b.id} className="py-3 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {b.code && (
+                    <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5">
+                      #{b.code}
+                    </span>
+                  )}
+                  <span className="font-medium truncate">
+                    {serviceTitles(b.serviceIds, serviceMap)}
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {b.slotStartAt
+                    ? formatDate(b.slotStartAt)
+                    : formatDate(b.createdAt)}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-sm font-medium">
+                  {formatNaira(b.amountKobo)}
+                </div>
+                {isTipSection ? (
+                  <span className="inline-block px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-amber-50 text-amber-800 mt-1">
+                    Tip
+                  </span>
+                ) : (
+                  <StatusPill status={b.status} />
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

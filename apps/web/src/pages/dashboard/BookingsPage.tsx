@@ -122,6 +122,7 @@ function AllBookingsTab({
     from: toIso(from, false),
     to: toIso(to, true),
     q: debouncedQ.trim() || undefined,
+    kind: "booking",
     limit: 100,
   });
   const bookings = bookingsQ.data ?? [];
@@ -217,6 +218,7 @@ function CalendarTab({
   const bookingsQ = useHostBookings({
     from: monthStart.toISOString(),
     to: monthEnd.toISOString(),
+    kind: "booking",
     limit: 200,
   });
   const bookings = bookingsQ.data ?? [];

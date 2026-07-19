@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -7,6 +8,7 @@ import {
 import { ConfigService } from "@nestjs/config";
 import { createHash, createHmac } from "node:crypto";
 import type {
+  Bank,
   InitializeInput,
   InitializeResult,
   NormalizedStatus,
@@ -227,6 +229,63 @@ export class MonnifyProvider implements PaymentProvider {
           ? undefined
           : (data.paymentDescription ?? undefined),
       raw: payload,
+    };
+  }
+
+  // ─── disbursement helpers ────────────────────────────────────────
+
+  async listBanks(): Promise<Bank[]> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const res = await fetch(`${baseUrl}/api/v1/banks`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const parsed = (await res.json().catch(() => null)) as MonnifyBanksBody | null;
+    if (!res.ok || !parsed?.requestSuccessful || !Array.isArray(parsed.responseBody)) {
+      this.logger.warn(
+        `Monnify list-banks failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Monnify list banks failed");
+    }
+
+    return parsed.responseBody
+      .filter((b): b is { name: string; code: string } => !!b?.name && !!b?.code)
+      .map((b) => ({ code: b.code, name: b.name }));
+  }
+
+  async resolveBankAccount(input: {
+    bankCode: string;
+    accountNumber: string;
+  }): Promise<{ accountName: string; bankName: string }> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const url =
+      `${baseUrl}/api/v1/disbursements/account/validate` +
+      `?accountNumber=${encodeURIComponent(input.accountNumber)}` +
+      `&bankCode=${encodeURIComponent(input.bankCode)}`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const parsed = (await res.json().catch(() => null)) as MonnifyValidateBody | null;
+    if (!res.ok || !parsed?.requestSuccessful || !parsed.responseBody) {
+      this.logger.warn(
+        `Monnify validate-account failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(
+        parsed?.responseMessage ?? "Could not verify that account.",
+      );
+    }
+
+    return {
+      accountName: parsed.responseBody.accountName ?? "",
+      // Monnify's validate endpoint typically omits bankName — dropdown owns
+      // the display name, so an empty fallback is fine.
+      bankName: parsed.responseBody.bankName ?? "",
     };
   }
 
@@ -532,4 +591,21 @@ interface MonnifyVerifyBody {
 interface MonnifyWebhookBody {
   eventType?: string;
   eventData?: MonnifyEventData;
+}
+
+interface MonnifyBanksBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseBody?: Array<{ name?: string; code?: string; ussdTemplate?: string | null }>;
+}
+
+interface MonnifyValidateBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseBody?: {
+    accountNumber?: string;
+    accountName?: string;
+    bankCode?: string;
+    bankName?: string;
+  };
 }

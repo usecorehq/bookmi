@@ -180,3 +180,28 @@ export const UpdateHostBookingSchema = z
   })
   .strict();
 export class UpdateHostBookingDto extends createZodDto(UpdateHostBookingSchema) {}
+
+// ─── Wallet — bank verification + payout account ───────────────────────
+
+/** POST /hosts/me/wallet/verify-bank-account — resolve account name via provider. */
+export const VerifyBankAccountSchema = z
+  .object({
+    bankCode: z.string().min(1).max(10),
+    accountNumber: z
+      .string()
+      .regex(/^\d{10}$/, "Account number must be 10 digits"),
+  })
+  .strict();
+export class VerifyBankAccountDto extends createZodDto(VerifyBankAccountSchema) {}
+
+/** POST /hosts/me/wallet/payout-account — persist the verified triple. */
+export const SavePayoutAccountSchema = z
+  .object({
+    bankCode: z.string().min(1).max(10),
+    accountNumber: z
+      .string()
+      .regex(/^\d{10}$/, "Account number must be 10 digits"),
+    accountName: z.string().min(1).max(120),
+  })
+  .strict();
+export class SavePayoutAccountDto extends createZodDto(SavePayoutAccountSchema) {}

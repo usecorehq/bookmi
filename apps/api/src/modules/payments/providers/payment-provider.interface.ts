@@ -93,6 +93,17 @@ export interface ParsedWebhook {
   raw: unknown;
 }
 
+/**
+ * Nigerian bank returned by the disbursement provider. `code` is the CBN /
+ * NIBSS bank code (Monnify calls this `code`, e.g. `"044"` for Access Bank).
+ * Not all providers include a logo URL — leave it undefined when absent.
+ */
+export interface Bank {
+  code: string;
+  name: string;
+  logoUrl?: string | null;
+}
+
 export interface PaymentProvider {
   readonly code: PaymentProviderCode;
 
@@ -114,6 +125,16 @@ export interface PaymentProvider {
   ): Promise<void>;
 
   chargeAuthorization?(input: ChargeAuthorizationInput): Promise<VerifyResult>;
+
+  /**
+   * Disbursement helpers — payout account setup. Providers that don't support
+   * transfers (or that we haven't wired transfers for yet) omit these.
+   */
+  listBanks?(): Promise<Bank[]>;
+  resolveBankAccount?(input: {
+    bankCode: string;
+    accountNumber: string;
+  }): Promise<{ accountName: string; bankName: string }>;
 }
 
 export const PAYMENT_PROVIDERS = Symbol("PAYMENT_PROVIDERS");

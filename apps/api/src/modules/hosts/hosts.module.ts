@@ -9,8 +9,13 @@ import { HostServicesService } from "./services/host-services.service";
 import { HostBookingsService } from "./services/host-bookings.service";
 import { HostWalletService } from "./services/host-wallet.service";
 import { CustomersService } from "./services/customers.service";
+import { PaymentsModule } from "../payments/payments.module";
 
 @Module({
+  // PaymentsModule exports PaymentProviderRegistry — HostWalletService uses it
+  // for bank listing + account verification through the same Monnify adapter
+  // the checkout uses.
+  imports: [PaymentsModule],
   controllers: [
     HostProfileController,
     HostServicesController,
