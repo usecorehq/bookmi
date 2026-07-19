@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
@@ -79,10 +79,11 @@ export default function VerifyOtpPage() {
     if (cooldown > 0) return;
     setResending(true);
     setError(null);
+    setResent(false);
     try {
       if (flow === "recovery") {
         const { error: e } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/auth/callback?flow=recovery`,
+          redirectTo: `${window.location.origin}/auth/verify-otp?flow=recovery&email=${encodeURIComponent(email)}`,
         });
         if (e) throw e;
       } else {
@@ -90,13 +91,33 @@ export default function VerifyOtpPage() {
         if (e) throw e;
       }
       setResent(true);
-      setCooldown(30);
+      setCooldown(60);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resend code");
     } finally {
       setResending(false);
     }
   };
+
+  const copy = useMemo(() => {
+    if (flow === "recovery") {
+      return {
+        heading: "Reset your password",
+        subtext: email
+          ? `Enter the 6-digit code we sent to ${email} to continue.`
+          : "Enter the 6-digit code we sent you.",
+      };
+    }
+    return {
+      heading: "Verify your email",
+      subtext: email
+        ? `Enter the 6-digit code we sent to ${email}.`
+        : "Enter the 6-digit code we sent you.",
+    };
+  }, [flow, email]);
+
+  const backLink = flow === "recovery" ? "/auth/forgot-password" : "/auth/signup";
+  const backLabel = flow === "recovery" ? "Back to reset password" : "Back to sign up";
 
   return (
     <AuthLayout>
@@ -106,24 +127,29 @@ export default function VerifyOtpPage() {
           <p className="text-sm text-muted-foreground mt-1">by Qorelly</p>
         </div>
         <div className="card p-8">
-          <h2 className="text-2xl font-semibold mb-1">Enter the 6-digit code</h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            We sent a code to {email ? <strong>{email}</strong> : "your inbox"}. It's good for 60 minutes.
-          </p>
+          <h2 className="text-2xl font-semibold mb-1">{copy.heading}</h2>
+          <p className="text-sm text-muted-foreground mb-6">{copy.subtext}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={6}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              className="input-field text-center text-2xl tracking-[0.5em] font-semibold"
-              placeholder="000000"
-              required
-            />
-            {resent && <FormMessage variant="success" message="Code resent." />}
+            <div>
+              <label className="block text-sm font-medium mb-2">Verification code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                className="input-field text-center text-2xl tracking-[0.5em] font-semibold"
+                placeholder="000000"
+                required
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground mt-2 text-center">
+                Or click the link we sent to your email.
+              </p>
+            </div>
+            {resent && <FormMessage variant="success" message={`New code sent to ${email}.`} />}
             {error && <FormMessage variant="error" message={error} />}
             <button
               type="submit"
@@ -134,20 +160,21 @@ export default function VerifyOtpPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            Didn't get it?{" "}
+          <div className="mt-6 flex items-center justify-between text-sm">
             <button
               type="button"
               onClick={handleResend}
               disabled={resending || cooldown > 0 || !email}
-              className="text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+              className="text-primary hover:underline font-medium disabled:text-muted-foreground disabled:no-underline"
             >
-              {cooldown > 0 ? `Resend in ${cooldown}s` : resending ? "Sending…" : "Resend"}
+              {cooldown > 0
+                ? `Resend in ${cooldown}s`
+                : resending
+                  ? "Sending…"
+                  : "Resend code"}
             </button>
-          </div>
-          <div className="mt-2 text-center text-sm">
-            <Link to="/auth/login" className="text-primary hover:underline">
-              Back to sign in
+            <Link to={backLink} className="text-gray-500 hover:text-gray-700">
+              {backLabel}
             </Link>
           </div>
         </div>
