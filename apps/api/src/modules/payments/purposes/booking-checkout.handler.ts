@@ -225,15 +225,17 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
       // Skipped when the booking wasn't customer-linked (legacy rows,
       // dashboard-manual bookings that skipped the customer step).
       if (current.customerId) {
-        const now = new Date();
+        // `now()` inside the SQL template avoids serializing a JS Date as
+        // a bind parameter — postgres-js only auto-serializes Date on
+        // typed column assignments, not inside raw sql interpolations.
         await trx
           .update(customers)
           .set({
             totalBookings: sql`${customers.totalBookings} + 1`,
             totalSpentKobo: sql`${customers.totalSpentKobo} + ${paidKobo}`,
-            lastBookingAt: now,
-            firstBookingAt: sql`COALESCE(${customers.firstBookingAt}, ${now})`,
-            updatedAt: now,
+            lastBookingAt: new Date(),
+            firstBookingAt: sql`COALESCE(${customers.firstBookingAt}, now())`,
+            updatedAt: new Date(),
           })
           .where(eq(customers.id, current.customerId));
       }
