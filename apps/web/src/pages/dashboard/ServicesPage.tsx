@@ -23,9 +23,12 @@ import {
 import { formatNaira } from "@/lib/utils";
 import type { Service, ServiceType } from "@bookmi/shared-types";
 
+type ServicesTab = "booking" | "tip";
+
 export default function ServicesPage() {
   const { profile } = useAuth();
   const servicesQ = useHostServices();
+  const [tab, setTab] = useState<ServicesTab>("booking");
   const [editing, setEditing] = useState<{ mode: "new"; type: ServiceType } | Service | null>(
     null,
   );
@@ -99,51 +102,62 @@ export default function ServicesPage() {
           onNewTip={() => setEditing({ mode: "new", type: "tip" })}
         />
       ) : (
-        <div className="space-y-8">
-          <Group
-            icon={<CalendarDays className="w-4 h-4" />}
-            title="Bookable services"
-            subtitle="Customers pick a date + time in the wizard."
-            emptyLabel="No bookable services yet."
-            items={bookings}
-            renderCard={(service) => (
-              <ServiceCard
-                key={service.id}
-                service={service}
-                hostSlug={hostSlug}
-                onEdit={() => setEditing(service)}
-                onDelete={() => setConfirmDelete(service)}
-                onToggleActive={(active) => handleToggleActive(service, active)}
-                busy={
-                  (updateMutation.isPending && updateMutation.variables?.id === service.id) ||
-                  (deleteMutation.isPending && deleteMutation.variables === service.id)
-                }
-              />
-            )}
-          />
+        <>
+          <div className="mb-5 inline-flex bg-gray-100 p-1">
+            <TabButton active={tab === "booking"} onClick={() => setTab("booking")}>
+              <CalendarDays className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+              Bookable services
+              <span className="ml-1.5 text-xs opacity-70">· {bookings.length}</span>
+            </TabButton>
+            <TabButton active={tab === "tip"} onClick={() => setTab("tip")}>
+              <Coffee className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+              Tips &amp; donations
+              <span className="ml-1.5 text-xs opacity-70">· {tips.length}</span>
+            </TabButton>
+          </div>
 
-          <Group
-            icon={<Coffee className="w-4 h-4" />}
-            title="Tips & donations"
-            subtitle="Direct-share link, pay what you want, no calendar."
-            emptyLabel="No tip options yet."
-            items={tips}
-            renderCard={(service) => (
-              <ServiceCard
-                key={service.id}
-                service={service}
-                hostSlug={hostSlug}
-                onEdit={() => setEditing(service)}
-                onDelete={() => setConfirmDelete(service)}
-                onToggleActive={(active) => handleToggleActive(service, active)}
-                busy={
-                  (updateMutation.isPending && updateMutation.variables?.id === service.id) ||
-                  (deleteMutation.isPending && deleteMutation.variables === service.id)
-                }
-              />
-            )}
-          />
-        </div>
+          {tab === "booking" ? (
+            <Group
+              subtitle="Customers pick a date + time in the wizard."
+              emptyLabel="No bookable services yet."
+              items={bookings}
+              renderCard={(service) => (
+                <ServiceCard
+                  key={service.id}
+                  service={service}
+                  hostSlug={hostSlug}
+                  onEdit={() => setEditing(service)}
+                  onDelete={() => setConfirmDelete(service)}
+                  onToggleActive={(active) => handleToggleActive(service, active)}
+                  busy={
+                    (updateMutation.isPending && updateMutation.variables?.id === service.id) ||
+                    (deleteMutation.isPending && deleteMutation.variables === service.id)
+                  }
+                />
+              )}
+            />
+          ) : (
+            <Group
+              subtitle="Direct-share link, pay what you want, no calendar."
+              emptyLabel="No tip options yet."
+              items={tips}
+              renderCard={(service) => (
+                <ServiceCard
+                  key={service.id}
+                  service={service}
+                  hostSlug={hostSlug}
+                  onEdit={() => setEditing(service)}
+                  onDelete={() => setConfirmDelete(service)}
+                  onToggleActive={(active) => handleToggleActive(service, active)}
+                  busy={
+                    (updateMutation.isPending && updateMutation.variables?.id === service.id) ||
+                    (deleteMutation.isPending && deleteMutation.variables === service.id)
+                  }
+                />
+              )}
+            />
+          )}
+        </>
       )}
 
       {editing && (
@@ -169,15 +183,11 @@ export default function ServicesPage() {
 }
 
 function Group({
-  icon,
-  title,
   subtitle,
   emptyLabel,
   items,
   renderCard,
 }: {
-  icon: React.ReactNode;
-  title: string;
   subtitle: string;
   emptyLabel: string;
   items: Service[];
@@ -185,20 +195,37 @@ function Group({
 }) {
   return (
     <section>
-      <div className="mb-3">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          {icon}
-          <span>{title}</span>
-          <span className="text-xs font-normal text-muted-foreground">· {items.length}</span>
-        </div>
-        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
-      </div>
+      <p className="text-sm text-muted-foreground mb-4">{subtitle}</p>
       {items.length === 0 ? (
         <div className="card p-6 text-sm text-muted-foreground">{emptyLabel}</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{items.map(renderCard)}</div>
       )}
     </section>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-1.5 text-sm transition ${
+        active
+          ? "bg-white text-foreground font-medium shadow-sm"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
