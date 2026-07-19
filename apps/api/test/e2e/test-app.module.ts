@@ -5,6 +5,7 @@ import { SUPABASE_DB } from "../../src/drizzle/drizzle.module";
 import { HealthModule } from "../../src/modules/health/health.module";
 import { AuthModule } from "../../src/modules/auth/auth.module";
 import { PaymentsModule } from "../../src/modules/payments/payments.module";
+import { EmailsService } from "../../src/modules/emails/emails.service";
 import { SupabaseJwtGuard } from "../../src/common/guards/supabase-jwt.guard";
 import { fakeDb } from "./fake-db";
 
@@ -12,8 +13,13 @@ export const TEST_JWT_SECRET = "test-secret-must-be-long-enough-abcdef";
 
 @Global()
 @Module({
-  providers: [{ provide: SUPABASE_DB, useValue: fakeDb() }],
-  exports: [SUPABASE_DB],
+  providers: [
+    { provide: SUPABASE_DB, useValue: fakeDb() },
+    // Stub EmailsService — AuthController's email-hook endpoint depends on it,
+    // but E2E doesn't actually render templates. Enqueue is a no-op.
+    { provide: EmailsService, useValue: { send: async () => undefined } },
+  ],
+  exports: [SUPABASE_DB, EmailsService],
 })
 class TestDrizzleModule {}
 

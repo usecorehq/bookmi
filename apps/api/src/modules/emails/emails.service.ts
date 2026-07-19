@@ -8,6 +8,12 @@ import BookingConfirmedHostTemplate, {
 import BookingConfirmedCustomerTemplate, {
   subject as bookingConfirmedCustomerSubject,
 } from "./templates/BookingConfirmedCustomerTemplate";
+import ResetPasswordTemplate, {
+  subject as resetPasswordSubject,
+} from "./templates/ResetPasswordTemplate";
+import ConfirmEmailTemplate, {
+  subject as confirmEmailSubject,
+} from "./templates/ConfirmEmailTemplate";
 
 /**
  * Producer + render orchestration. Callers hand us a discriminated `EmailJob`,
@@ -46,6 +52,14 @@ export class EmailsService {
       case "booking_confirmed_customer": {
         const html = await render(BookingConfirmedCustomerTemplate({ data: job.data }));
         return { subject: bookingConfirmedCustomerSubject(job.data), html };
+      }
+      case "reset_password": {
+        const html = await render(ResetPasswordTemplate({ data: job.data }));
+        return { subject: resetPasswordSubject(), html };
+      }
+      case "confirm_email": {
+        const html = await render(ConfirmEmailTemplate({ data: job.data }));
+        return { subject: confirmEmailSubject(), html };
       }
       default: {
         // TS exhaustiveness — if a new kind is added and not handled here,

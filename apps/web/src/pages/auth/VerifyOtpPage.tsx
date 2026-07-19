@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
@@ -9,6 +9,10 @@ import { FormMessage } from "@/components/ui/FormMessage";
  * or the user can paste it manually. Flow parameter chooses the redirect:
  * - signup → /onboarding
  * - recovery → /auth/update-password
+ *
+ * When the email button is clicked, the URL carries `code=<6-digit token>`
+ * so we auto-fill and submit. Belt + braces: the code is also visible in the
+ * email body for anyone whose button opens a browser they're not signed into.
  */
 export default function VerifyOtpPage() {
   const navigate = useNavigate();
@@ -16,6 +20,7 @@ export default function VerifyOtpPage() {
 
   const flow = searchParams.get("flow") === "recovery" ? "recovery" : "signup";
   const email = searchParams.get("email") ?? "";
+  const codeFromUrl = searchParams.get("code") ?? "";
 
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +28,7 @@ export default function VerifyOtpPage() {
   const [resending, setResending] = useState(false);
   const [resent, setResent] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const autoSubmittedRef = useRef(false);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -30,27 +36,43 @@ export default function VerifyOtpPage() {
     return () => clearInterval(t);
   }, [cooldown]);
 
+  const verifyCode = useCallback(
+    async (token: string) => {
+      setError(null);
+      setLoading(true);
+      try {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          email,
+          token,
+          type: flow === "recovery" ? "recovery" : "email",
+        });
+        if (otpError) throw otpError;
+        navigate(flow === "recovery" ? "/auth/update-password" : "/onboarding", {
+          replace: true,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Invalid or expired code");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [email, flow, navigate],
+  );
+
+  // If the email's button dropped us here with ?code=<token>, prefill and
+  // auto-submit after a beat so the user sees what's happening.
+  useEffect(() => {
+    if (autoSubmittedRef.current) return;
+    if (!codeFromUrl || codeFromUrl.length < 4 || !email) return;
+    autoSubmittedRef.current = true;
+    setCode(codeFromUrl);
+    const t = setTimeout(() => verifyCode(codeFromUrl), 400);
+    return () => clearTimeout(t);
+  }, [codeFromUrl, email, verifyCode]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const { error: otpError } = await supabase.auth.verifyOtp({
-        email,
-        token: code,
-        type: flow === "recovery" ? "recovery" : "email",
-      });
-      if (otpError) throw otpError;
-      if (flow === "recovery") {
-        navigate("/auth/update-password", { replace: true });
-      } else {
-        navigate("/onboarding", { replace: true });
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid or expired code");
-    } finally {
-      setLoading(false);
-    }
+    await verifyCode(code);
   };
 
   const handleResend = async () => {

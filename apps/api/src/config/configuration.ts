@@ -18,6 +18,8 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY!,
       jwtSecret: env.SUPABASE_JWT_SECRET!,
       dbUrl: env.SUPABASE_DB_URL!,
+      /** Secret used to verify GoTrue Send Email hook requests (optional). */
+      emailHookSecret: env.SUPABASE_EMAIL_HOOK_SECRET,
     },
 
     monnify: {

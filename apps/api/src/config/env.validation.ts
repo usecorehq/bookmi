@@ -56,6 +56,10 @@ class EnvVars {
   @IsString()
   SUPABASE_JWT_SECRET!: string;
 
+  @IsString()
+  @IsOptional()
+  SUPABASE_EMAIL_HOOK_SECRET?: string;
+
   /**
    * Postgres connection string for the Supabase project. Local:
    *   postgres://postgres:<pw>@localhost:54322/postgres

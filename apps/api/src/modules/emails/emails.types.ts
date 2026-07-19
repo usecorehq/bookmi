@@ -8,8 +8,32 @@
  * queue later without changing callsites.
  */
 
-export type EmailJob = BookingConfirmedHostJob | BookingConfirmedCustomerJob;
+export type EmailJob =
+  | BookingConfirmedHostJob
+  | BookingConfirmedCustomerJob
+  | ResetPasswordJob
+  | ConfirmEmailJob;
+  
+export interface ResetPasswordJob {
+  kind: "reset_password";
+  to: string;
+  data: {
+    email: string;
+    code: string;
+    verifyUrl: string;
+  };
+}
 
+export interface ConfirmEmailJob {
+  kind: "confirm_email";
+  to: string;
+  data: {
+    email: string;
+    code: string;
+    verifyUrl: string;
+  };
+}
+  
 export interface BookingConfirmedHostJob {
   kind: "booking_confirmed_host";
   to: string;
