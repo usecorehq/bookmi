@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { Customer } from "@bookmi/shared-types";
+import type { Booking, Customer } from "@bookmi/shared-types";
 import { apiFetch } from "@/lib/api";
 
 export function useHostCustomers(opts: { limit?: number; offset?: number } = {}) {
@@ -30,6 +30,34 @@ export function useCustomerSearch(term: string) {
     queryFn: async () => {
       const res = await apiFetch<{ items: Customer[] }>(
         `/hosts/me/customers?q=${encodeURIComponent(term.trim())}`,
+      );
+      return res.items;
+    },
+  });
+}
+
+/** Single-customer detail. Disabled while `id` is undefined. */
+export function useCustomer(id: string | undefined) {
+  return useQuery({
+    queryKey: ["host-customer", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const res = await apiFetch<{ customer: Customer }>(
+        `/hosts/me/customers/${id}`,
+      );
+      return res.customer;
+    },
+  });
+}
+
+/** Every booking (incl. tips) the customer has made with the host. Newest first. */
+export function useCustomerBookings(id: string | undefined) {
+  return useQuery({
+    queryKey: ["host-customer-bookings", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const res = await apiFetch<{ items: Booking[] }>(
+        `/hosts/me/customers/${id}/bookings`,
       );
       return res.items;
     },
