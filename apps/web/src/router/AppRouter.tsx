@@ -8,6 +8,7 @@ import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import VerifyOtpPage from "@/pages/auth/VerifyOtpPage";
 import UpdatePasswordPage from "@/pages/auth/UpdatePasswordPage";
 import AuthCallbackPage from "@/pages/auth/AuthCallbackPage";
+import OnboardingPage from "@/pages/onboarding/OnboardingPage";
 
 /**
  * Bookmi routes:
@@ -32,27 +33,13 @@ export function AppRouter() {
 
         {/* Onboarding is signed-in-only. Dashboard requires an onboarded profile. */}
         <Route element={<RequireAuth />}>
-          <Route path="/onboarding" element={<OnboardingPlaceholder />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
         </Route>
         <Route element={<RequireAuth requireOnboarded />}>
           <Route path="/dashboard" element={<DashboardPlaceholder />} />
         </Route>
       </Routes>
     </AuthProvider>
-  );
-}
-
-// Task #39 fills these in.
-function OnboardingPlaceholder() {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="max-w-md text-center space-y-3">
-        <div className="text-lg font-semibold">Onboarding coming up</div>
-        <p className="text-sm text-muted-foreground">
-          You're signed in. The slug picker screen lands in the next commit.
-        </p>
-      </div>
-    </div>
   );
 }
 

@@ -22,13 +22,9 @@ describe("App (e2e)", () => {
     const mod = await Test.createTestingModule({ imports: [TestAppModule] }).compile();
     app = mod.createNestApplication({ logger: false, rawBody: true });
     app.setGlobalPrefix("api");
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
+    // Match main.ts — transform-only. Zod DTOs handle unknown-field
+    // rejection via `.strict()` per schema.
+    app.useGlobalPipes(new ValidationPipe({ transform: true }));
     await app.init();
   });
 

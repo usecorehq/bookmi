@@ -12,7 +12,7 @@ export function LandingPage() {
           </span>
         </h1>
         <p className="text-muted-foreground text-lg">
-          Share <span className="font-mono text-foreground">bookmi.co/you</span>. Let anyone book
+          Share <span className="font-mono text-foreground">book.me/you</span>. Let anyone book
           your services and pay in seconds — powered by Monnify.
         </p>
         <div className="text-xs text-muted-foreground pt-4 border-t border-border/60">

@@ -15,13 +15,12 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api");
   app.enableCors({ origin: true, credentials: true });
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  // Global transform-only pipe. Whitelist/forbidNonWhitelisted are OFF because
+  // every DTO in bookmi is a nestjs-zod `createZodDto`, and class-validator's
+  // whitelist would strip every field from a Zod class (no class-validator
+  // metadata → nothing on the allowlist). Unknown-field rejection is handled
+  // per-schema via `.strict()` on the Zod object.
+  app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
   // Swagger — always on in dev, harmless in prod behind an ingress rule.
   // Paste a Supabase access_token into the Authorize button; every request
