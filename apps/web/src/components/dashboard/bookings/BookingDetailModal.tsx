@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Loader2,
   X,
@@ -7,15 +7,16 @@ import {
   Calendar,
   Clock,
   Send,
-  Printer,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Booking, BookingStatus, Service } from "@bookmi/shared-types";
 import { formatNaira } from "@/lib/utils";
 import { useUpdateBooking } from "@/hooks/useUpdateBooking";
+import { useSendPaymentLink } from "@/hooks/useBookingActions";
 import { useHostServices } from "@/hooks/useHostServices";
 import { useAuth } from "@/contexts/AuthContext";
-import { PrintableReceipt } from "./PrintableReceipt";
+import { RefundModal } from "./RefundModal";
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700",
@@ -66,8 +67,10 @@ export function BookingDetailModal({
   onUpdated?: () => void;
 }) {
   const updateMutation = useUpdateBooking();
+  const sendPaymentLinkMutation = useSendPaymentLink();
   const servicesQ = useHostServices();
   const { profile } = useAuth();
+  const [refundOpen, setRefundOpen] = useState(false);
 
   // Prefer the explicitly-passed list; fall back to the query cache. Lets the
   // modal work regardless of whether the parent already resolved services.
@@ -104,71 +107,30 @@ export function BookingDetailModal({
     );
   };
 
-  const hostName = profile?.displayName ?? "your host";
-  const hostSlug = profile?.slug ?? null;
+  // firstServiceSlug + hostSlug were used by the old mailto payment-link
+  // implementation. They're no longer read but kept as computed so future
+  // deep-links (e.g. copy-to-clipboard) can reuse them.
+  void firstServiceSlug;
 
   const handleSendPaymentLink = () => {
     if (!booking.customerEmail) {
       toast.error("No customer email on file.");
       return;
     }
-    if (!hostSlug || !firstServiceSlug) {
-      toast.error("Can't build payment link — missing slug.");
-      return;
-    }
-    const url = `${window.location.origin}/${hostSlug}/${firstServiceSlug}`;
-    const subject = `Complete your booking with ${hostName}`;
-    const body = [
-      `Hi ${booking.customerName},`,
-      "",
-      "Here's your booking to complete payment:",
-      "",
-      `Service: ${serviceTitles}`,
-      `Amount: ${formatNaira(booking.amountKobo)}`,
-      `Booking code: #${booking.code ?? booking.id.slice(0, 8)}`,
-      "",
-      `Pay here: ${url}`,
-      "",
-      "Thanks,",
-      hostName,
-    ].join("\n");
-    window.location.href = `mailto:${encodeURIComponent(
-      booking.customerEmail,
-    )}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  };
-
-  const handleSendReceipt = () => {
-    if (!booking.customerEmail) {
-      toast.error("No customer email on file.");
-      return;
-    }
-    const subject = `Receipt for booking #${booking.code ?? booking.id.slice(0, 8)}`;
-    const body = [
-      `Hi ${booking.customerName},`,
-      "",
-      "Here's your booking receipt:",
-      "",
-      `Service: ${serviceTitles}`,
-      `Amount paid: ${formatNaira(booking.amountKobo)}`,
-      `Booking code: #${booking.code ?? booking.id.slice(0, 8)}`,
-      `Date: ${formatSlotFull(booking.slotStartAt)}`,
-      "",
-      "Thanks,",
-      hostName,
-    ].join("\n");
-    window.location.href = `mailto:${encodeURIComponent(
-      booking.customerEmail,
-    )}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  };
-
-  const handlePrint = () => {
-    window.print();
+    sendPaymentLinkMutation.mutate(booking.id, {
+      onSuccess: (r) => toast.success(`Payment link emailed to ${r.email}`),
+      onError: (err) => toast.error(readError(err)),
+    });
   };
 
   const transitions = STATUS_TRANSITIONS[booking.status] ?? [];
-  const canSendReceipt = booking.status !== "failed" && booking.status !== "pending";
   const canSendPaymentLink = booking.status === "pending";
-  const canPrint = canSendReceipt;
+  // Refund is only meaningful once money has landed and hasn't been unwound.
+  const canRefund =
+    booking.status === "confirmed" ||
+    booking.status === "arrived" ||
+    booking.status === "seated" ||
+    booking.status === "completed";
 
   const created = new Date(booking.createdAt).toLocaleString(undefined, {
     month: "short",
@@ -275,7 +237,7 @@ export function BookingDetailModal({
         </div>
 
         {/* Actions footer */}
-        {(transitions.length > 0 || canSendReceipt || canSendPaymentLink) && (
+        {(transitions.length > 0 || canSendPaymentLink || canRefund) && (
           <div className="border-t border-gray-200 p-4 bg-gray-50 space-y-2">
             {transitions.map((t) => {
               const isMutating =
@@ -303,49 +265,38 @@ export function BookingDetailModal({
               <button
                 type="button"
                 onClick={handleSendPaymentLink}
+                disabled={sendPaymentLinkMutation.isPending}
                 className="btn-secondary w-full"
               >
-                <Send className="w-4 h-4" />
+                {sendPaymentLinkMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
                 Send payment link
               </button>
             )}
 
-            {canSendReceipt && (
+            {canRefund && (
               <button
                 type="button"
-                onClick={handleSendReceipt}
-                className="btn-secondary w-full"
+                onClick={() => setRefundOpen(true)}
+                className="btn-secondary w-full !text-red-700 hover:!bg-red-50"
               >
-                <Send className="w-4 h-4" />
-                Send receipt
-              </button>
-            )}
-
-            {canPrint && (
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="btn-secondary w-full"
-              >
-                <Printer className="w-4 h-4" />
-                Print receipt
+                <Undo2 className="w-4 h-4" />
+                Refund
               </button>
             )}
           </div>
         )}
       </div>
 
-      {/* Print-only content — hidden on screen, revealed by @media print */}
-      <PrintableReceipt
-        booking={booking}
-        serviceTitles={serviceTitles}
-        host={{
-          displayName: profile?.displayName ?? null,
-          phone: profile?.phone ?? null,
-          address: profile?.address ?? null,
-          slug: profile?.slug ?? null,
-        }}
-      />
+      {refundOpen && (
+        <RefundModal
+          booking={booking}
+          onClose={() => setRefundOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -397,12 +348,22 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function SourcePill({ source }: { source: string }) {
+  const label = SOURCE_LABEL[source] ?? source;
   return (
     <span className="inline-block px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-gray-100 text-gray-600">
-      {source}
+      {label}
     </span>
   );
 }
+
+/**
+ * DB stores `storefront` as the legacy source key. Renaming the column is a
+ * migration; renaming just the surfaced label is one map.
+ */
+const SOURCE_LABEL: Record<string, string> = {
+  storefront: "Public",
+  dashboard: "Dashboard",
+};
 
 function formatSlotFull(iso: string | null): string {
   if (!iso) return "No slot (tip)";

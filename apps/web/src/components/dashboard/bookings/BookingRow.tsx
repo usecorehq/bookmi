@@ -78,7 +78,7 @@ export function BookingRow({
               </span>
             )}
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {booking.source}
+              {booking.source === "storefront" ? "Public" : booking.source}
             </span>
           </div>
           <div className="font-medium truncate">{booking.customerName}</div>
