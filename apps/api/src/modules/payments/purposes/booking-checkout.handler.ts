@@ -10,6 +10,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
 import {
   bookings,
+  customers,
   hostWallets,
   services,
   type PaymentTransaction,
@@ -167,6 +168,7 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
         .select({
           id: bookings.id,
           hostId: bookings.hostId,
+          customerId: bookings.customerId,
           status: bookings.status,
         })
         .from(bookings)
@@ -217,6 +219,24 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
             updatedAt: new Date(),
           },
         });
+
+      // Roll up customer totals — cheap denormalization so the dashboard
+      // can sort by top spender / most recent visit without a booking join.
+      // Skipped when the booking wasn't customer-linked (legacy rows,
+      // dashboard-manual bookings that skipped the customer step).
+      if (current.customerId) {
+        const now = new Date();
+        await trx
+          .update(customers)
+          .set({
+            totalBookings: sql`${customers.totalBookings} + 1`,
+            totalSpentKobo: sql`${customers.totalSpentKobo} + ${paidKobo}`,
+            lastBookingAt: now,
+            firstBookingAt: sql`COALESCE(${customers.firstBookingAt}, ${now})`,
+            updatedAt: now,
+          })
+          .where(eq(customers.id, current.customerId));
+      }
     });
   }
 

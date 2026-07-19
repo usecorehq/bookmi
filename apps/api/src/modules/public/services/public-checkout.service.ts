@@ -14,6 +14,7 @@ import {
   type Booking,
 } from "../../../drizzle/schema";
 import { generateBookingCode } from "../../hosts/booking-code";
+import { CustomersService } from "../../hosts/services/customers.service";
 import { PaymentsService } from "../../payments/services/payments.service";
 import type { InitiateResult } from "../../payments/services/payments.service";
 import { BOOKING_CHECKOUT_PURPOSE } from "../../payments/purposes/booking-checkout.handler";
@@ -45,6 +46,7 @@ export class PublicCheckoutService {
   constructor(
     @Inject(SUPABASE_DB) private readonly db: SupabaseDb,
     private readonly payments: PaymentsService,
+    private readonly customers: CustomersService,
   ) {}
 
   async checkout(
@@ -63,8 +65,20 @@ export class PublicCheckoutService {
 
     const amountKobo = this.resolveAmount({ ...service, type: serviceType }, input.amountKobo);
 
+    // Resolve (or create) the durable customer row BEFORE we insert the
+    // booking — that way every storefront booking is linked. If a phone
+    // clashes with an existing row we reuse it, which is exactly the
+    // "repeat customer" case we want to track.
+    const { customerId } = await this.customers.resolveOrCreate({
+      hostId: host.id,
+      name: input.customerName,
+      phone: input.customerPhone,
+      email: input.customerEmail,
+    });
+
     const booking = await this.insertBooking({
       hostId: host.id,
+      customerId,
       serviceId: service.id,
       serviceType,
       durationMinutes: service.durationMinutes ?? (serviceType === "tip" ? 0 : 60),
@@ -159,6 +173,7 @@ export class PublicCheckoutService {
    */
   private async insertBooking(input: {
     hostId: string;
+    customerId: string;
     serviceId: string;
     serviceType: "booking" | "tip";
     durationMinutes: number;
@@ -176,6 +191,7 @@ export class PublicCheckoutService {
           .insert(bookings)
           .values({
             hostId: input.hostId,
+            customerId: input.customerId,
             serviceIds: [input.serviceId],
             durationMinutes: input.durationMinutes,
             code,

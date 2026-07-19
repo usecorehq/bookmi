@@ -279,6 +279,41 @@ export const services = bookmi.table(
   }),
 );
 
+export const customers = bookmi.table(
+  "customers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Nullable — anonymous tippers may skip it. Unique per host when set. */
+    phone: text("phone"),
+    email: text("email"),
+    /** Host-authored notes (allergies, preferences). Not shown to the customer. */
+    notes: text("notes"),
+    /**
+     * Rolled up from bookings on settlement. Cheap denormalization so the
+     * customer list can sort by "top spender" without a join.
+     */
+    totalBookings: integer("total_bookings").notNull().default(0),
+    totalSpentKobo: bigint("total_spent_kobo", { mode: "number" }).notNull().default(0),
+    firstBookingAt: timestamp("first_booking_at", { withTimezone: true }),
+    lastBookingAt: timestamp("last_booking_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostIdx: index("cust_host_idx").on(t.hostId),
+    // Partial-unique on phone so the storefront's phone-first dedup lookup
+    // is enforced at the DB level; multiple no-phone rows per host are OK.
+    hostPhoneUniq: uniqueIndex("cust_host_phone_uniq")
+      .on(t.hostId, t.phone)
+      .where(sql`${t.phone} IS NOT NULL`),
+    hostNameIdx: index("cust_host_name_idx").on(t.hostId, t.name),
+  }),
+);
+
 export const bookings = bookmi.table(
   "bookings",
   {
@@ -286,6 +321,14 @@ export const bookings = bookmi.table(
     hostId: uuid("host_id")
       .notNull()
       .references(() => hostProfiles.id),
+    /**
+     * The customer this booking belongs to. Nullable because legacy rows
+     * (pre-migration) won't have one and dashboard bookings might skip the
+     * customer step. Populated from `resolveOrCreate` on public checkout.
+     */
+    customerId: uuid("customer_id").references(() => customers.id, {
+      onDelete: "set null",
+    }),
     /**
      * The services this booking covers. UUID[] to support multi-select in the
      * customer wizard (see images 11–13). Cannot be a Postgres FK on an array
@@ -363,6 +406,7 @@ export type HostProfile = typeof hostProfiles.$inferSelect;
 export type HostWallet = typeof hostWallets.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
 
 export type BookingStatus =
