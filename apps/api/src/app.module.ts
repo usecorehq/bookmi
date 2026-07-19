@@ -6,6 +6,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { EmailsModule } from "./modules/emails/emails.module";
 import { HostsModule } from "./modules/hosts/hosts.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
+import { PublicModule } from "./modules/public/public.module";
 import { DrizzleModule } from "./drizzle/drizzle.module";
 import { QueuesModule } from "./common/queues/queues.module";
 import { AdminQueuesModule } from "./modules/admin/admin-queues.module";
@@ -30,6 +31,7 @@ import configuration from "./config/configuration";
     AuthModule,
     HostsModule,
     PaymentsModule,
+    PublicModule,
     AdminQueuesModule,
   ],
   providers: [

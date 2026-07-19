@@ -13,6 +13,7 @@ import OnboardingPage from "@/pages/onboarding/OnboardingPage";
 import DashboardHomePage from "@/pages/dashboard/DashboardHomePage";
 import ProfilePage from "@/pages/dashboard/ProfilePage";
 import ServicesPage from "@/pages/dashboard/ServicesPage";
+import HostPublicPage from "@/pages/public/HostPublicPage";
 
 /**
  * Bookmi routes:
@@ -48,6 +49,9 @@ export function AppRouter() {
             <Route path="profile" element={<ProfilePage />} />
           </Route>
         </Route>
+
+        <Route path="/:slug" element={<HostPublicPage />} />
+        <Route path="/:slug/:serviceSlug" element={<HostPublicPage />} />
       </Routes>
     </AuthProvider>
   );
