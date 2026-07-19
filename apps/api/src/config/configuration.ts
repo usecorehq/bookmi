@@ -32,6 +32,21 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
       /** Basis points cut from each successful booking payment. 250 = 2.5%. */
       feeBps: parseInt(env.PLATFORM_FEE_BPS ?? "250", 10),
     },
+
+    mailer: {
+      host: env.SMTP_HOST ?? "localhost",
+      port: parseInt(env.SMTP_PORT ?? "1025", 10),
+      user: env.SMTP_USER ?? "",
+      pass: env.SMTP_PASS ?? "",
+      secure: (env.SMTP_SECURE ?? "false") === "true",
+      fromAddress: env.EMAIL_FROM_ADDRESS ?? "no-reply@bookmi.co",
+      fromName: env.EMAIL_FROM_NAME ?? "Bookmi",
+    },
+
+    web: {
+      /** Public URL of the frontend — used to construct links in emails. */
+      baseUrl: env.WEB_BASE_URL ?? "http://localhost:5173",
+    },
   };
 }
 

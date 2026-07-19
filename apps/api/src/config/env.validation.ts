@@ -89,6 +89,37 @@ class EnvVars {
   @Max(10000)
   @IsOptional()
   PLATFORM_FEE_BPS: number = 250;
+
+  // ── SMTP (Mailhog defaults) ──
+  @IsString()
+  @IsOptional()
+  SMTP_HOST: string = "localhost";
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  @IsOptional()
+  SMTP_PORT: number = 1025;
+
+  @IsString()
+  @IsOptional()
+  SMTP_USER: string = "";
+
+  @IsString()
+  @IsOptional()
+  SMTP_PASS: string = "";
+
+  @IsString()
+  @IsOptional()
+  SMTP_SECURE: string = "false";
+
+  @IsString()
+  @IsOptional()
+  EMAIL_FROM_ADDRESS: string = "no-reply@bookmi.co";
+
+  @IsString()
+  @IsOptional()
+  EMAIL_FROM_NAME: string = "Bookmi";
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvVars {

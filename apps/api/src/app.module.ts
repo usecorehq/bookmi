@@ -3,6 +3,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
 import { HealthModule } from "./modules/health/health.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { EmailsModule } from "./modules/emails/emails.module";
 import { HostsModule } from "./modules/hosts/hosts.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
 import { DrizzleModule } from "./drizzle/drizzle.module";
@@ -19,6 +20,7 @@ import configuration from "./config/configuration";
       validate: validateEnv,
     }),
     DrizzleModule,
+    EmailsModule,
     HealthModule,
     AuthModule,
     HostsModule,

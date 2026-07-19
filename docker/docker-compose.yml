@@ -1,0 +1,14 @@
+services:
+  # Mailhog — SMTP sink for local dev. Bookmi's EmailsModule ships with
+  # localhost:1025 as the default SMTP host, so no env changes needed to
+  # capture emails during the demo.
+  #
+  #   docker compose -f docker/docker-compose.yml up -d mailhog
+  #   open http://localhost:8025   # web preview of every captured email
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: bookmi_mailhog
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # web UI
+    restart: unless-stopped
