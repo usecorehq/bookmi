@@ -13,6 +13,10 @@ import OnboardingPage from "@/pages/onboarding/OnboardingPage";
 import DashboardHomePage from "@/pages/dashboard/DashboardHomePage";
 import ProfilePage from "@/pages/dashboard/ProfilePage";
 import ServicesPage from "@/pages/dashboard/ServicesPage";
+import BookingsPage from "@/pages/dashboard/BookingsPage";
+import WalletPage from "@/pages/dashboard/WalletPage";
+import CustomersPage from "@/pages/dashboard/CustomersPage";
+import CustomerDetailPage from "@/pages/dashboard/CustomerDetailPage";
 import HostPublicPage from "@/pages/public/HostPublicPage";
 
 /**
@@ -44,8 +48,10 @@ export function AppRouter() {
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardHomePage />} />
             <Route path="services" element={<ServicesPage />} />
-            <Route path="bookings" element={<PlaceholderPage title="Bookings" body="All + Calendar views land in task #47." />} />
-            <Route path="wallet" element={<PlaceholderPage title="Wallet" body="Balance + payouts land in task #47." />} />
+            <Route path="bookings" element={<BookingsPage />} />
+            <Route path="customers" element={<CustomersPage />} />
+            <Route path="customers/:id" element={<CustomerDetailPage />} />
+            <Route path="wallet" element={<WalletPage />} />
             <Route path="profile" element={<ProfilePage />} />
           </Route>
         </Route>
@@ -57,11 +63,3 @@ export function AppRouter() {
   );
 }
 
-function PlaceholderPage({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="max-w-md">
-      <h1 className="text-2xl font-bold mb-2">{title}</h1>
-      <p className="text-sm text-muted-foreground">{body}</p>
-    </div>
-  );
-}

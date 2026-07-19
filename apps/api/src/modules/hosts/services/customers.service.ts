@@ -1,7 +1,13 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
-import { customers, hostProfiles, type Customer } from "../../../drizzle/schema";
+import {
+  bookings,
+  customers,
+  hostProfiles,
+  type Booking,
+  type Customer,
+} from "../../../drizzle/schema";
 
 /**
  * Per-host customer registry. Public checkout calls `resolveOrCreate` so
@@ -126,6 +132,27 @@ export class CustomersService {
       .limit(1);
     if (!row) throw new NotFoundException("Customer not found.");
     return row;
+  }
+
+  /**
+   * Full booking history for a single customer. Ordered newest first so the
+   * detail page renders recent activity at the top; capped so the payload
+   * stays snappy for the customers with hundreds of visits.
+   */
+  async getBookingsForCustomer(
+    userId: string,
+    customerId: string,
+    opts: { limit?: number } = {},
+  ): Promise<Booking[]> {
+    const host = await this.requireHost(userId);
+    // Ownership gate — throws NotFound before we run the booking query.
+    await this.getByIdForUser(userId, customerId);
+    return this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.hostId, host.id), eq(bookings.customerId, customerId)))
+      .orderBy(desc(bookings.createdAt))
+      .limit(opts.limit ?? 100);
   }
 
   private async requireHost(userId: string) {

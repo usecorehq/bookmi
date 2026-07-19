@@ -43,4 +43,16 @@ export class HostCustomersController {
     const customer = await this.customers.getByIdForUser(user.sub, id);
     return { customer };
   }
+
+  @Get(":id/bookings")
+  @ApiOperation({
+    summary: "List every booking (including tips) this customer has made with the host.",
+  })
+  async bookings(
+    @Param("id", ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const items = await this.customers.getBookingsForCustomer(user.sub, id);
+    return { items };
+  }
 }

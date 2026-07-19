@@ -4,6 +4,7 @@ import {
   LayoutGrid,
   Tag,
   CalendarDays,
+  Users,
   Wallet,
   UserCircle,
   ExternalLink,
@@ -24,8 +25,9 @@ interface NavItem {
 
 const PRIMARY_NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutGrid, end: true },
-  { to: "/dashboard/services", label: "Services", icon: Tag },
   { to: "/dashboard/bookings", label: "Bookings", icon: CalendarDays },
+  { to: "/dashboard/services", label: "Services", icon: Tag },
+  { to: "/dashboard/customers", label: "Customers", icon: Users },
   { to: "/dashboard/wallet", label: "Wallet", icon: Wallet },
   { to: "/dashboard/profile", label: "Profile", icon: UserCircle },
 ];
