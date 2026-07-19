@@ -1,14 +1,14 @@
 /**
  * Provider-agnostic payment adapter contract.
  *
- * Every provider (Monnify today; Paystack/Flutterwave/Stripe later) implements
- * this. The orchestration layer (PaymentsService) never speaks provider
+ * Every provider (Monnify today) implements this. 
+ * The orchestration layer (PaymentsService) never speaks provider
  * dialect — it only ever holds a PaymentProvider reference.
  *
  * All amounts are in **minor units** (kobo, cents) and integers.
  */
 
-export type PaymentProviderCode = "paystack" | "flutterwave" | "monnify" | string;
+export type PaymentProviderCode = "monnify" | "paystack" | "flutterwave" | string;
 
 export type NormalizedStatus =
   | "pending"

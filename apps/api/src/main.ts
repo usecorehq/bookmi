@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { ValidationPipe, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { cleanupOpenApiDoc } from "nestjs-zod";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
@@ -36,9 +37,15 @@ async function bootstrap() {
       "bearer",
     )
     .build();
-  SwaggerModule.setup("docs", app, SwaggerModule.createDocument(app, swaggerCfg), {
-    swaggerOptions: { persistAuthorization: true },
-  });
+  // cleanupOpenApiDoc post-processes zod-driven schemas so createZodDto()
+  // classes render properly under Schemas — without this, our request
+  // bodies show up as unlabelled `{}` in Swagger.
+  SwaggerModule.setup(
+    "docs",
+    app,
+    cleanupOpenApiDoc(SwaggerModule.createDocument(app, swaggerCfg)),
+    { swaggerOptions: { persistAuthorization: true } },
+  );
 
   const config = app.get(ConfigService);
   const port = config.get<number>("port", 4000);

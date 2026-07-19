@@ -1,65 +1,29 @@
-import {
-  IsEmail,
-  IsEnum,
-  IsInt,
-  IsObject,
-  IsOptional,
-  IsPositive,
-  IsString,
-  IsUUID,
-  Length,
-} from "class-validator";
+import { createZodDto } from "nestjs-zod";
+import { z } from "zod";
 
 export const PURPOSE_TYPES = ["booking_checkout"] as const;
-export type PurposeType = (typeof PURPOSE_TYPES)[number];
 
-export class InitiatePaymentDto {
-  @IsEnum(PURPOSE_TYPES)
-  purposeType!: PurposeType;
+/**
+ * Initiate a payment. The frontend sends this to /payments/initiate; the
+ * server derives the reference, resolves the provider by country, calls
+ * provider.initialize, and returns whatever the client needs to run the
+ * checkout (popup access_code, hosted authorization_url, or just the
+ * reference for Monnify popup).
+ */
+export const InitiatePaymentSchema = z
+  .object({
+    purposeType: z.enum(PURPOSE_TYPES),
+    purposeId: z.string().uuid().optional(),
+    amountMinor: z.number().int().positive(),
+    currency: z.string().length(3).optional(),
+    countryCode: z.string().length(2).optional(),
+    businessId: z.string().uuid().optional(),
+    email: z.string().email(),
+    metadata: z.record(z.unknown()).optional(),
+    callbackUrl: z.string().url().optional(),
+    idempotencyKey: z.string().optional(),
+    checkoutMode: z.enum(["popup", "checkout_url"]).optional(),
+  })
+  .strict();
 
-  @IsOptional()
-  @IsUUID()
-  purposeId?: string;
-
-  @IsInt()
-  @IsPositive()
-  amountMinor!: number;
-
-  @IsOptional()
-  @IsString()
-  @Length(3, 3)
-  currency?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(2, 2)
-  countryCode?: string;
-
-  @IsOptional()
-  @IsUUID()
-  businessId?: string;
-
-  @IsEmail()
-  email!: string;
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  callbackUrl?: string;
-
-  /**
-   * For guest checkouts, the frontend forwards this so multi-tab / double-click
-   * initiates resolve to the same transaction row. Also honored as the
-   * `Idempotency-Key` header at the controller level.
-   */
-  @IsOptional()
-  @IsString()
-  idempotencyKey?: string;
-
-  @IsOptional()
-  @IsEnum(["popup", "checkout_url"])
-  checkoutMode?: "popup" | "checkout_url";
-}
+export class InitiatePaymentDto extends createZodDto(InitiatePaymentSchema) {}

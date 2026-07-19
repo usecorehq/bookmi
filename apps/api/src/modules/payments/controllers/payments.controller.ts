@@ -11,7 +11,8 @@ import {
   CurrentUser,
   type AuthenticatedUser,
 } from "../../../common/decorators/current-user.decorator";
-import { InitiatePaymentDto } from "../dto/payments.dto";
+import { ZodValidationPipe } from "../../../common/pipes/zod-validation.pipe";
+import { InitiatePaymentDto, InitiatePaymentSchema } from "../dto/payments.dto";
 import { PaymentsService } from "../services/payments.service";
 
 /**
@@ -30,7 +31,9 @@ export class PaymentsController {
       "Start a payment. Server derives the reference, resolves provider by country, calls provider.initialize, returns the popup access_code or hosted redirect URL.",
   })
   initiate(
-    @Body() body: InitiatePaymentDto,
+    // Pipe stays on the body param only — a method-level pipe would also
+    // run against the header and user params and reject every valid request.
+    @Body(new ZodValidationPipe(InitiatePaymentSchema)) body: InitiatePaymentDto,
     @CurrentUser() user: AuthenticatedUser,
     @Headers("idempotency-key") idempotencyKey?: string,
   ) {
