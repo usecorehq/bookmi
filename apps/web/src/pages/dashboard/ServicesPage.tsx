@@ -1,8 +1,19 @@
-import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Clock, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Clock,
+  Loader2,
+  Check,
+  Copy,
+  Coffee,
+  CalendarDays,
+} from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { FormMessage } from "@/components/ui/FormMessage";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   useCreateService,
   useDeleteService,
@@ -10,20 +21,31 @@ import {
   useUpdateService,
 } from "@/hooks/useHostServices";
 import { formatNaira } from "@/lib/utils";
-import type { Service } from "@bookmi/shared-types";
+import type { Service, ServiceType } from "@bookmi/shared-types";
 
 export default function ServicesPage() {
+  const { profile } = useAuth();
   const servicesQ = useHostServices();
-  const [editing, setEditing] = useState<Service | "new" | null>(null);
+  const [editing, setEditing] = useState<{ mode: "new"; type: ServiceType } | Service | null>(
+    null,
+  );
   const [confirmDelete, setConfirmDelete] = useState<Service | null>(null);
   const updateMutation = useUpdateService();
   const deleteMutation = useDeleteService();
+
+  const { bookings, tips } = useMemo(() => {
+    const list = servicesQ.data ?? [];
+    return {
+      bookings: list.filter((s) => s.type === "booking"),
+      tips: list.filter((s) => s.type === "tip"),
+    };
+  }, [servicesQ.data]);
 
   const handleToggleActive = (service: Service, active: boolean) => {
     updateMutation.mutate(
       { id: service.id, patch: { active } },
       {
-        onSuccess: () => toast.success(active ? "Service activated" : "Service hidden"),
+        onSuccess: () => toast.success(active ? "Made visible" : "Hidden from your page"),
         onError: (err) => toast.error(readError(err)),
       },
     );
@@ -33,26 +55,37 @@ export default function ServicesPage() {
     if (!confirmDelete) return;
     deleteMutation.mutate(confirmDelete.id, {
       onSuccess: () => {
-        toast.success("Service deleted");
+        toast.success("Deleted");
         setConfirmDelete(null);
       },
       onError: (err) => toast.error(readError(err)),
     });
   };
 
+  const hostSlug = profile?.slug ?? "";
+
   return (
     <div>
       <PageHeader
         title="Services"
-        subtitle="What customers can book on your page."
+        subtitle="Bookable services show up in the wizard. Tips are one-tap payments — no calendar."
         actions={
-          <button
-            type="button"
-            onClick={() => setEditing("new")}
-            className="btn-primary inline-flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" /> New service
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing({ mode: "new", type: "tip" })}
+              className="btn-secondary inline-flex items-center gap-2"
+            >
+              <Coffee className="w-4 h-4" /> New tip
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing({ mode: "new", type: "booking" })}
+              className="btn-primary inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" /> New service
+            </button>
+          </div>
         }
       />
 
@@ -60,29 +93,63 @@ export default function ServicesPage() {
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : servicesQ.isError ? (
         <FormMessage variant="error" message="Couldn't load services." />
-      ) : servicesQ.data && servicesQ.data.length === 0 ? (
-        <EmptyState onCreate={() => setEditing("new")} />
+      ) : (servicesQ.data ?? []).length === 0 ? (
+        <EmptyState
+          onNewBooking={() => setEditing({ mode: "new", type: "booking" })}
+          onNewTip={() => setEditing({ mode: "new", type: "tip" })}
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {servicesQ.data?.map((service) => (
-            <ServiceCard
-              key={service.id}
-              service={service}
-              onEdit={() => setEditing(service)}
-              onDelete={() => setConfirmDelete(service)}
-              onToggleActive={(active) => handleToggleActive(service, active)}
-              busy={
-                (updateMutation.isPending && updateMutation.variables?.id === service.id) ||
-                (deleteMutation.isPending && deleteMutation.variables === service.id)
-              }
-            />
-          ))}
+        <div className="space-y-8">
+          <Group
+            icon={<CalendarDays className="w-4 h-4" />}
+            title="Bookable services"
+            subtitle="Customers pick a date + time in the wizard."
+            emptyLabel="No bookable services yet."
+            items={bookings}
+            renderCard={(service) => (
+              <ServiceCard
+                key={service.id}
+                service={service}
+                hostSlug={hostSlug}
+                onEdit={() => setEditing(service)}
+                onDelete={() => setConfirmDelete(service)}
+                onToggleActive={(active) => handleToggleActive(service, active)}
+                busy={
+                  (updateMutation.isPending && updateMutation.variables?.id === service.id) ||
+                  (deleteMutation.isPending && deleteMutation.variables === service.id)
+                }
+              />
+            )}
+          />
+
+          <Group
+            icon={<Coffee className="w-4 h-4" />}
+            title="Tips & donations"
+            subtitle="Direct-share link, pay what you want, no calendar."
+            emptyLabel="No tip options yet."
+            items={tips}
+            renderCard={(service) => (
+              <ServiceCard
+                key={service.id}
+                service={service}
+                hostSlug={hostSlug}
+                onEdit={() => setEditing(service)}
+                onDelete={() => setConfirmDelete(service)}
+                onToggleActive={(active) => handleToggleActive(service, active)}
+                busy={
+                  (updateMutation.isPending && updateMutation.variables?.id === service.id) ||
+                  (deleteMutation.isPending && deleteMutation.variables === service.id)
+                }
+              />
+            )}
+          />
         </div>
       )}
 
       {editing && (
         <ServiceFormModal
-          service={editing === "new" ? null : editing}
+          service={"mode" in editing ? null : editing}
+          initialType={"mode" in editing ? editing.type : editing.type}
           onClose={() => setEditing(null)}
         />
       )}
@@ -90,7 +157,7 @@ export default function ServicesPage() {
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete "${confirmDelete.title}"?`}
-          body="This can't be undone. Existing bookings that referenced this service are kept."
+          body="This can't be undone. Existing bookings that referenced it are kept."
           confirmLabel="Delete"
           busy={deleteMutation.isPending}
           onCancel={() => setConfirmDelete(null)}
@@ -101,19 +168,63 @@ export default function ServicesPage() {
   );
 }
 
+function Group({
+  icon,
+  title,
+  subtitle,
+  emptyLabel,
+  items,
+  renderCard,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  emptyLabel: string;
+  items: Service[];
+  renderCard: (s: Service) => React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="mb-3">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          {icon}
+          <span>{title}</span>
+          <span className="text-xs font-normal text-muted-foreground">· {items.length}</span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+      </div>
+      {items.length === 0 ? (
+        <div className="card p-6 text-sm text-muted-foreground">{emptyLabel}</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{items.map(renderCard)}</div>
+      )}
+    </section>
+  );
+}
+
 function ServiceCard({
   service,
+  hostSlug,
   onEdit,
   onDelete,
   onToggleActive,
   busy,
 }: {
   service: Service;
+  hostSlug: string;
   onEdit: () => void;
   onDelete: () => void;
   onToggleActive: (active: boolean) => void;
   busy?: boolean;
 }) {
+  const url = `${window.location.origin}/${hostSlug}/${service.slug}`;
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
     <div className="card p-5 flex flex-col justify-between">
       <div>
@@ -137,13 +248,28 @@ function ServiceCard({
           <span className="font-semibold text-lg">
             {service.payWhatYouWant ? "Pay what you want" : formatNaira(service.priceKobo)}
           </span>
-          {service.durationMinutes != null && (
+          {service.type === "booking" && service.durationMinutes != null && (
             <span className="inline-flex items-center gap-1 text-muted-foreground">
               <Clock className="w-3.5 h-3.5" />
               {formatDuration(service.durationMinutes)}
             </span>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="mt-3 w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 flex items-center justify-between gap-2 group"
+          title="Copy direct link"
+        >
+          <span className="text-xs font-mono text-muted-foreground truncate">
+            book.me/{hostSlug}/{service.slug}
+          </span>
+          <span className="shrink-0 inline-flex items-center gap-1 text-xs text-primary">
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? "Copied" : "Copy"}
+          </span>
+        </button>
       </div>
 
       <div className="mt-5 pt-4 border-t border-gray-200 flex items-center justify-between">
@@ -181,25 +307,41 @@ function ServiceCard({
   );
 }
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyState({
+  onNewBooking,
+  onNewTip,
+}: {
+  onNewBooking: () => void;
+  onNewTip: () => void;
+}) {
   return (
     <div className="card p-10 text-center">
-      <h2 className="text-lg font-semibold mb-1">No services yet</h2>
+      <h2 className="text-lg font-semibold mb-1">Nothing on your page yet</h2>
       <p className="text-sm text-muted-foreground mb-5">
-        Add your first service so customers can book it from your page.
+        Add a bookable service, or a Buy-me-a-coffee-style tip.
       </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="btn-primary inline-flex items-center gap-2"
-      >
-        <Plus className="w-4 h-4" /> Add service
-      </button>
+      <div className="flex items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={onNewBooking}
+          className="btn-primary inline-flex items-center gap-2"
+        >
+          <CalendarDays className="w-4 h-4" /> Add bookable service
+        </button>
+        <button
+          type="button"
+          onClick={onNewTip}
+          className="btn-secondary inline-flex items-center gap-2"
+        >
+          <Coffee className="w-4 h-4" /> Add tip
+        </button>
+      </div>
     </div>
   );
 }
 
 interface FormState {
+  type: ServiceType;
   title: string;
   description: string;
   priceNaira: string;
@@ -208,18 +350,20 @@ interface FormState {
   active: boolean;
 }
 
-function toFormState(service: Service | null): FormState {
+function toFormState(service: Service | null, initialType: ServiceType): FormState {
   if (!service) {
     return {
+      type: initialType,
       title: "",
       description: "",
-      priceNaira: "",
-      durationMinutes: "60",
-      payWhatYouWant: false,
+      priceNaira: initialType === "tip" ? "" : "",
+      durationMinutes: initialType === "booking" ? "60" : "",
+      payWhatYouWant: initialType === "tip",
       active: true,
     };
   }
   return {
+    type: service.type,
     title: service.title,
     description: service.description ?? "",
     priceNaira: (service.priceKobo / 100).toString(),
@@ -231,12 +375,14 @@ function toFormState(service: Service | null): FormState {
 
 function ServiceFormModal({
   service,
+  initialType,
   onClose,
 }: {
   service: Service | null;
+  initialType: ServiceType;
   onClose: () => void;
 }) {
-  const [form, setForm] = useState<FormState>(() => toFormState(service));
+  const [form, setForm] = useState<FormState>(() => toFormState(service, initialType));
   const [error, setError] = useState<string | null>(null);
   const createMutation = useCreateService();
   const updateMutation = useUpdateService();
@@ -247,6 +393,16 @@ function ServiceFormModal({
     document.addEventListener("keydown", onEsc);
     return () => document.removeEventListener("keydown", onEsc);
   }, [onClose]);
+
+  const handleTypeChange = (type: ServiceType) => {
+    setForm({
+      ...form,
+      type,
+      payWhatYouWant: type === "tip" ? true : form.payWhatYouWant,
+      priceNaira: type === "tip" ? "" : form.priceNaira,
+      durationMinutes: type === "booking" ? form.durationMinutes || "60" : "",
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,9 +420,12 @@ function ServiceFormModal({
       return;
     }
 
-    const durationMinutes = form.durationMinutes.trim()
-      ? Number(form.durationMinutes)
-      : null;
+    const durationMinutes =
+      form.type === "tip"
+        ? null
+        : form.durationMinutes.trim()
+          ? Number(form.durationMinutes)
+          : null;
     if (durationMinutes != null && (!Number.isInteger(durationMinutes) || durationMinutes <= 0)) {
       setError("Duration must be a positive whole number of minutes.");
       return;
@@ -279,6 +438,7 @@ function ServiceFormModal({
         {
           id: service.id,
           patch: {
+            type: form.type,
             title,
             description: description ?? null,
             priceKobo,
@@ -289,7 +449,7 @@ function ServiceFormModal({
         },
         {
           onSuccess: () => {
-            toast.success("Service updated");
+            toast.success("Saved");
             onClose();
           },
           onError: (err) => setError(readError(err)),
@@ -298,6 +458,7 @@ function ServiceFormModal({
     } else {
       createMutation.mutate(
         {
+          type: form.type,
           title,
           description,
           priceKobo,
@@ -306,7 +467,7 @@ function ServiceFormModal({
         },
         {
           onSuccess: () => {
-            toast.success("Service added");
+            toast.success("Added");
             onClose();
           },
           onError: (err) => setError(readError(err)),
@@ -319,15 +480,40 @@ function ServiceFormModal({
     <ModalShell onClose={onClose}>
       <form onSubmit={handleSubmit} className="p-6">
         <h2 className="text-xl font-semibold mb-1">
-          {service ? "Edit service" : "New service"}
+          {service
+            ? "Edit"
+            : form.type === "tip"
+              ? "New tip"
+              : "New bookable service"}
         </h2>
         <p className="text-sm text-muted-foreground mb-6">
-          {service
-            ? "Changes are visible on your public page immediately."
-            : "Customers see this on your page and in the booking wizard."}
+          {form.type === "tip"
+            ? "One-tap payments — customer picks the amount, no calendar."
+            : "Customers pick this in the booking wizard with a date + time."}
         </p>
 
         <div className="space-y-4">
+          {!service && (
+            <Field label="Type">
+              <div className="grid grid-cols-2 gap-2">
+                <TypeChoice
+                  active={form.type === "booking"}
+                  icon={<CalendarDays className="w-4 h-4" />}
+                  label="Booking"
+                  hint="Date + time"
+                  onClick={() => handleTypeChange("booking")}
+                />
+                <TypeChoice
+                  active={form.type === "tip"}
+                  icon={<Coffee className="w-4 h-4" />}
+                  label="Tip"
+                  hint="Buy me a coffee"
+                  onClick={() => handleTypeChange("tip")}
+                />
+              </div>
+            </Field>
+          )}
+
           <Field label="Title" required>
             <input
               className="input-field"
@@ -336,21 +522,29 @@ function ServiceFormModal({
               maxLength={120}
               autoFocus
               required
+              placeholder={form.type === "tip" ? "Buy me a coffee" : "1-on-1 Mentorship"}
             />
           </Field>
 
-          <Field label="Description" hint="Shown under the title on your page.">
+          <Field label="Description" hint="Shown on the page and the share link.">
             <textarea
               className="input-field min-h-[80px]"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               maxLength={500}
-              placeholder="45-min hydrating facial with a warm towel finish."
+              placeholder={
+                form.type === "tip"
+                  ? "Support my work with a coffee."
+                  : "45-min hydrating facial with a warm towel finish."
+              }
             />
           </Field>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Price (₦)" required={!form.payWhatYouWant}>
+            <Field
+              label={form.payWhatYouWant ? "Price (locked — pay what you want)" : "Price (₦)"}
+              required={!form.payWhatYouWant}
+            >
               <div className="flex items-stretch">
                 <span className="inline-flex items-center px-3 border border-r-0 border-gray-200 bg-gray-50 text-sm text-muted-foreground select-none">
                   ₦
@@ -369,28 +563,31 @@ function ServiceFormModal({
               </div>
             </Field>
 
-            <Field label="Duration (minutes)" hint="Blank if it varies.">
-              <input
-                className="input-field"
-                type="number"
-                min={1}
-                max={24 * 60}
-                step="5"
-                value={form.durationMinutes}
-                onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })}
-                placeholder="60"
-              />
-            </Field>
+            {form.type === "booking" && (
+              <Field label="Duration (minutes)" hint="Blank if it varies.">
+                <input
+                  className="input-field"
+                  type="number"
+                  min={1}
+                  max={24 * 60}
+                  value={form.durationMinutes}
+                  onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })}
+                  placeholder="60"
+                />
+              </Field>
+            )}
           </div>
 
-          <Toggle
-            label="Pay what you want"
-            hint="Customer picks the amount at checkout."
-            value={form.payWhatYouWant}
-            onChange={(v) =>
-              setForm({ ...form, payWhatYouWant: v, priceNaira: v ? "" : form.priceNaira })
-            }
-          />
+          {form.type === "booking" && (
+            <Toggle
+              label="Pay what you want"
+              hint="Customer picks the amount at checkout."
+              value={form.payWhatYouWant}
+              onChange={(v) =>
+                setForm({ ...form, payWhatYouWant: v, priceNaira: v ? "" : form.priceNaira })
+              }
+            />
+          )}
 
           {service && (
             <Toggle
@@ -415,11 +612,41 @@ function ServiceFormModal({
           </button>
           <button type="submit" disabled={pending} className="btn-primary">
             {pending && <Loader2 className="w-4 h-4 mr-2 inline animate-spin" />}
-            {service ? "Save changes" : "Add service"}
+            {service ? "Save changes" : form.type === "tip" ? "Add tip" : "Add service"}
           </button>
         </div>
       </form>
     </ModalShell>
+  );
+}
+
+function TypeChoice({
+  active,
+  icon,
+  label,
+  hint,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-3 border text-left transition ${
+        active ? "border-primary bg-primary-light" : "border-gray-200 hover:bg-gray-50"
+      }`}
+    >
+      <div className={`flex items-center gap-2 text-sm font-medium ${active ? "text-primary" : ""}`}>
+        {icon}
+        {label}
+      </div>
+      <div className="text-xs text-muted-foreground mt-1">{hint}</div>
+    </button>
   );
 }
 

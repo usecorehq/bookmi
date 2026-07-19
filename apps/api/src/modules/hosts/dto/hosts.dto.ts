@@ -87,7 +87,23 @@ export class UpdateHostProfileDto extends createZodDto(UpdateHostProfileSchema) 
 
 // ─── Services ──────────────────────────────────────────────────────────
 
+export const SERVICE_TYPES = ["booking", "tip"] as const;
+export type ServiceType = (typeof SERVICE_TYPES)[number];
+
+/**
+ * A service's slug is per-host, so it can share the same regex as the host
+ * slug but is exempt from RESERVED_SLUGS (those apply to the top-level path).
+ */
+export const ServiceSlugSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])?$/,
+    "Slug must be 3–60 lowercase alphanumeric characters or hyphens.",
+  );
+
 const ServiceBase = {
+  type: z.enum(SERVICE_TYPES).optional(),
+  slug: ServiceSlugSchema.optional(),
   title: z.string().min(1).max(120),
   description: z.string().max(500).nullable().optional(),
   priceKobo: z.number().int().nonnegative(),
@@ -101,6 +117,8 @@ export class CreateServiceDto extends createZodDto(CreateServiceSchema) {}
 
 export const UpdateServiceSchema = z
   .object({
+    type: ServiceBase.type,
+    slug: ServiceBase.slug,
     title: ServiceBase.title.optional(),
     description: ServiceBase.description,
     priceKobo: ServiceBase.priceKobo.optional(),

@@ -1,8 +1,12 @@
 import type { Kobo } from "./money.js";
 
+export type ServiceType = "booking" | "tip";
+
 export interface Service {
   id: string;
   hostId: string;
+  type: ServiceType;
+  slug: string;
   title: string;
   description: string | null;
   priceKobo: Kobo;
@@ -14,6 +18,8 @@ export interface Service {
 }
 
 export interface CreateServiceInput {
+  type?: ServiceType;
+  slug?: string;
   title: string;
   description?: string;
   priceKobo: Kobo;
@@ -27,6 +33,8 @@ export interface UpdateServiceInput extends Partial<CreateServiceInput> {
 
 export interface PublicServiceView {
   id: string;
+  type: ServiceType;
+  slug: string;
   title: string;
   description: string | null;
   priceKobo: Kobo;

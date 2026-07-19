@@ -251,6 +251,19 @@ export const services = bookmi.table(
     hostId: uuid("host_id")
       .notNull()
       .references(() => hostProfiles.id, { onDelete: "cascade" }),
+    /**
+     * 'booking' → shows in the wizard (requires date + time).
+     * 'tip'     → skips calendar entirely; direct-share link goes straight
+     *             to a pay-what-you-want amount picker. Used for Buy Me a
+     *             Coffee-style receiving.
+     */
+    type: text("type").notNull().default("booking"),
+    /**
+     * Per-host slug. URL surface: `/<host-slug>/<service-slug>` — pre-selects
+     * this service in the wizard (booking) or opens the tip page (tip).
+     * Auto-generated from title on create, uniquified with a numeric suffix.
+     */
+    slug: text("slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),
     priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
@@ -262,6 +275,7 @@ export const services = bookmi.table(
   },
   (t) => ({
     hostIdx: index("svc_host_idx").on(t.hostId, t.active),
+    slugUniq: uniqueIndex("svc_host_slug_uniq").on(t.hostId, t.slug),
   }),
 );
 
