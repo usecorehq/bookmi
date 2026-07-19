@@ -12,6 +12,7 @@ import AuthCallbackPage from "@/pages/auth/AuthCallbackPage";
 import OnboardingPage from "@/pages/onboarding/OnboardingPage";
 import DashboardHomePage from "@/pages/dashboard/DashboardHomePage";
 import ProfilePage from "@/pages/dashboard/ProfilePage";
+import ServicesPage from "@/pages/dashboard/ServicesPage";
 
 /**
  * Bookmi routes:
@@ -41,7 +42,7 @@ export function AppRouter() {
         <Route element={<RequireAuth requireOnboarded />}>
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardHomePage />} />
-            <Route path="services" element={<PlaceholderPage title="Services" body="Services CRUD lands in task #41." />} />
+            <Route path="services" element={<ServicesPage />} />
             <Route path="bookings" element={<PlaceholderPage title="Bookings" body="All + Calendar views land in task #47." />} />
             <Route path="wallet" element={<PlaceholderPage title="Wallet" body="Balance + payouts land in task #47." />} />
             <Route path="profile" element={<ProfilePage />} />
