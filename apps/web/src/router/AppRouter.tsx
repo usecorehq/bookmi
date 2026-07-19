@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/auth/RequireAuth";
+import { DashboardLayout } from "@/components/layouts/DashboardLayout";
 import { LandingPage } from "@/pages/LandingPage";
 import LoginPage from "@/pages/auth/LoginPage";
 import SignupPage from "@/pages/auth/SignupPage";
@@ -9,14 +10,16 @@ import VerifyOtpPage from "@/pages/auth/VerifyOtpPage";
 import UpdatePasswordPage from "@/pages/auth/UpdatePasswordPage";
 import AuthCallbackPage from "@/pages/auth/AuthCallbackPage";
 import OnboardingPage from "@/pages/onboarding/OnboardingPage";
+import DashboardHomePage from "@/pages/dashboard/DashboardHomePage";
+import ProfilePage from "@/pages/dashboard/ProfilePage";
 
 /**
  * Bookmi routes:
  *   /                                  landing
  *   /auth/{login|signup|forgot-password|verify-otp|update-password|callback}
  *   /onboarding                        (requireAuth)
- *   /dashboard/*                       (requireAuth + requireOnboarded)
- *   /:slug                             public host page
+ *   /dashboard/*                       (requireAuth + requireOnboarded) → DashboardLayout
+ *   /:slug                             public host page (later)
  *   /:slug/checkout/:serviceId         checkout (later)
  */
 export function AppRouter() {
@@ -31,27 +34,29 @@ export function AppRouter() {
         <Route path="/auth/update-password" element={<UpdatePasswordPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-        {/* Onboarding is signed-in-only. Dashboard requires an onboarded profile. */}
         <Route element={<RequireAuth />}>
           <Route path="/onboarding" element={<OnboardingPage />} />
         </Route>
+
         <Route element={<RequireAuth requireOnboarded />}>
-          <Route path="/dashboard" element={<DashboardPlaceholder />} />
+          <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route index element={<DashboardHomePage />} />
+            <Route path="services" element={<PlaceholderPage title="Services" body="Services CRUD lands in task #41." />} />
+            <Route path="bookings" element={<PlaceholderPage title="Bookings" body="All + Calendar views land in task #47." />} />
+            <Route path="wallet" element={<PlaceholderPage title="Wallet" body="Balance + payouts land in task #47." />} />
+            <Route path="profile" element={<ProfilePage />} />
+          </Route>
         </Route>
       </Routes>
     </AuthProvider>
   );
 }
 
-function DashboardPlaceholder() {
+function PlaceholderPage({ title, body }: { title: string; body: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="max-w-md text-center space-y-3">
-        <div className="text-lg font-semibold">Dashboard coming up</div>
-        <p className="text-sm text-muted-foreground">
-          You're signed in and onboarded. The dashboard lands soon.
-        </p>
-      </div>
+    <div className="max-w-md">
+      <h1 className="text-2xl font-bold mb-2">{title}</h1>
+      <p className="text-sm text-muted-foreground">{body}</p>
     </div>
   );
 }
