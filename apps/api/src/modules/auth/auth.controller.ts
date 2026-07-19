@@ -69,7 +69,7 @@ export class AuthController {
 
     if (email_action_type === "signup") {
       const verifyUrl = `${webBase}/auth/verify-otp?flow=signup&email=${encodeURIComponent(user.email)}&code=${token}`;
-      await this.emails.send({
+      await this.emails.enqueue({
         kind: "confirm_email",
         to: user.email,
         data: {
@@ -80,7 +80,7 @@ export class AuthController {
       });
     } else if (email_action_type === "recovery") {
       const verifyUrl = `${webBase}/auth/verify-otp?flow=recovery&email=${encodeURIComponent(user.email)}&code=${token}`;
-      await this.emails.send({
+      await this.emails.enqueue({
         kind: "reset_password",
         to: user.email,
         data: {

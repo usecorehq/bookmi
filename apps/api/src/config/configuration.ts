@@ -49,6 +49,19 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
       /** Public URL of the frontend — used to construct links in emails. */
       baseUrl: env.WEB_BASE_URL ?? "http://localhost:5173",
     },
+
+    redis: {
+      host: env.REDIS_HOST ?? "localhost",
+      port: parseInt(env.REDIS_PORT ?? "6379", 10),
+      password: env.REDIS_PASSWORD ?? "",
+      queueDb: parseInt(env.REDIS_QUEUE_DB ?? "1", 10),
+    },
+
+    bullBoard: {
+      /** If both are set, mount the Bull Board UI at /api/admin/queues with basic auth. */
+      user: env.BULL_BOARD_USER ?? "",
+      pass: env.BULL_BOARD_PASS ?? "",
+    },
   };
 }
 

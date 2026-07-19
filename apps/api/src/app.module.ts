@@ -7,6 +7,8 @@ import { EmailsModule } from "./modules/emails/emails.module";
 import { HostsModule } from "./modules/hosts/hosts.module";
 import { PaymentsModule } from "./modules/payments/payments.module";
 import { DrizzleModule } from "./drizzle/drizzle.module";
+import { QueuesModule } from "./common/queues/queues.module";
+import { AdminQueuesModule } from "./modules/admin/admin-queues.module";
 import { SupabaseJwtGuard } from "./common/guards/supabase-jwt.guard";
 import { validateEnv } from "./config/env.validation";
 import configuration from "./config/configuration";
@@ -19,12 +21,16 @@ import configuration from "./config/configuration";
       load: [configuration],
       validate: validateEnv,
     }),
+    // QueuesModule sets up the shared ioredis connection + BullMQ root wiring.
+    // Every feature module that registers a queue depends on this.
+    QueuesModule,
     DrizzleModule,
     EmailsModule,
     HealthModule,
     AuthModule,
     HostsModule,
     PaymentsModule,
+    AdminQueuesModule,
   ],
   providers: [
     // Global auth: every route requires a valid Supabase JWT unless the

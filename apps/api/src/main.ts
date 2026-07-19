@@ -5,6 +5,7 @@ import { ConfigService } from "@nestjs/config";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { cleanupOpenApiDoc } from "nestjs-zod";
 import { AppModule } from "./app.module";
+import { createBullBoardBasicAuthMiddleware } from "./modules/admin/bull-board-basic-auth.middleware";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -12,6 +13,13 @@ async function bootstrap() {
     rawBody: true,
     logger: ["error", "warn", "log"],
   });
+
+  const config = app.get(ConfigService);
+
+  // Bull Board mounts a raw Express router at /api/admin/queues that bypasses
+  // Nest's guard pipeline — protect it with HTTP Basic Auth registered here,
+  // BEFORE any Nest module init runs, so nothing downstream can shadow it.
+  app.use("/api/admin/queues", createBullBoardBasicAuthMiddleware(config));
 
   app.setGlobalPrefix("api");
   app.enableCors({ origin: true, credentials: true });
@@ -46,7 +54,6 @@ async function bootstrap() {
     { swaggerOptions: { persistAuthorization: true } },
   );
 
-  const config = app.get(ConfigService);
   const port = config.get<number>("port", 4000);
 
   await app.listen(port);
