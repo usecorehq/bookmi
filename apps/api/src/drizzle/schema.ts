@@ -1,5 +1,7 @@
 /**
- * Bookmi drizzle schema — single Supabase Postgres.
+ * Bookmi drizzle schema — single Supabase Postgres, isolated in the
+ * `bookmi` schema so it coexists with qore-* tables in `public` on the
+ * same local DB.
  *
  * Two sections:
  *   1. Payments — provider-agnostic ledger + audit + webhook receipts,
@@ -11,12 +13,11 @@
  *   pnpm --filter @bookmi/api db:migrate
  *
  * Always pass --name; migrations are named semantically after what they do
- * (e.g. 0000_bookmi_setup, 0001_add_slot_holds) — never drizzle's random
- * codenames.
+ * (e.g. bookmi_setup, add_slot_holds) — never drizzle's random codenames.
  */
 
 import {
-  pgTable,
+  pgSchema,
   uuid,
   text,
   timestamp,
@@ -26,9 +27,10 @@ import {
   boolean,
   index,
   uniqueIndex,
-  primaryKey,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
+
+export const bookmi = pgSchema("bookmi");
 
 // ═══════════════════════════════════════════════════════════════════════
 // SECTION 1: PAYMENTS
@@ -36,7 +38,7 @@ import { relations, sql } from "drizzle-orm";
 
 // ─── Country + provider routing ───────────────────────────────────────
 
-export const countries = pgTable("countries", {
+export const countries = bookmi.table("countries", {
   id: uuid("id").primaryKey().defaultRandom(),
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
@@ -45,7 +47,7 @@ export const countries = pgTable("countries", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const paymentProviders = pgTable("payment_providers", {
+export const paymentProviders = bookmi.table("payment_providers", {
   id: uuid("id").primaryKey().defaultRandom(),
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
@@ -53,7 +55,7 @@ export const paymentProviders = pgTable("payment_providers", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const countryPaymentProviders = pgTable(
+export const countryPaymentProviders = bookmi.table(
   "country_payment_providers",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -74,11 +76,10 @@ export const countryPaymentProviders = pgTable(
 
 // ─── Transactions ────────────────────────────────────────────────────
 
-export const paymentTransactions = pgTable(
+export const paymentTransactions = bookmi.table(
   "payment_transactions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    // Our internal, customer-facing reference. Prefix: bookmi_pmt_
     reference: text("reference").notNull().unique(),
 
     providerCode: text("provider_code").notNull(),
@@ -95,12 +96,8 @@ export const paymentTransactions = pgTable(
     countryCode: text("country_code").notNull(),
 
     purposeType: text("purpose_type").notNull(),
-    // booking_checkout (bookmi has one purpose for now)
     purposeId: uuid("purpose_id"),
 
-    // Bookmi doesn't have "businesses" like qore does — keep the column for
-    // parity so shared audit tooling reads uniformly; hosts land as businessId
-    // (their host_profiles.id).
     businessId: uuid("business_id"),
     initiatorUserId: uuid("initiator_user_id").notNull(),
     payerEmail: text("payer_email").notNull(),
@@ -135,16 +132,15 @@ export const paymentTransactions = pgTable(
 
 // ─── Append-only audit ───────────────────────────────────────────────
 
-export const paymentEvents = pgTable(
+export const paymentEvents = bookmi.table(
   "payment_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     transactionId: uuid("transaction_id").notNull(),
     eventType: text("event_type").notNull(),
-    // initiated | provider_response | verified | webhook_received | status_changed | error | purpose_handled
     fromStatus: text("from_status"),
     toStatus: text("to_status"),
-    source: text("source").notNull(), // client | admin | webhook | verify | system
+    source: text("source").notNull(),
     payload: jsonb("payload").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -155,7 +151,7 @@ export const paymentEvents = pgTable(
 
 // ─── Webhook receipt log (idempotency at the edge) ───────────────────
 
-export const paymentWebhookEvents = pgTable(
+export const paymentWebhookEvents = bookmi.table(
   "payment_webhook_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -194,13 +190,10 @@ export const paymentEventRelations = relations(paymentEvents, ({ one }) => ({
 // SECTION 2: BOOKMI DOMAIN
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── Host profile ────────────────────────────────────────────────────
-
-export const hostProfiles = pgTable(
+export const hostProfiles = bookmi.table(
   "host_profiles",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    // References auth.users(id) in Supabase — FK enforced via a migration.
     userId: uuid("user_id").notNull().unique(),
     slug: text("slug").notNull().unique(),
     displayName: text("display_name").notNull(),
@@ -215,16 +208,13 @@ export const hostProfiles = pgTable(
   }),
 );
 
-// ─── Host wallet (Monnify reserved account + payout bank) ────────────
-
-export const hostWallets = pgTable("host_wallets", {
+export const hostWallets = bookmi.table("host_wallets", {
   hostId: uuid("host_id")
     .primaryKey()
     .references(() => hostProfiles.id, { onDelete: "cascade" }),
   monnifyWalletReference: text("monnify_wallet_reference"),
   reservedAccountNumber: text("reserved_account_number"),
   reservedBankName: text("reserved_bank_name"),
-  // Ledger balance in kobo. Only PaymentsService writes it inside a tx.
   balanceKobo: bigint("balance_kobo", { mode: "number" }).notNull().default(0),
   bankCode: text("bank_code"),
   bankAccountNumber: text("bank_account_number"),
@@ -233,9 +223,7 @@ export const hostWallets = pgTable("host_wallets", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// ─── Services offered by a host ──────────────────────────────────────
-
-export const services = pgTable(
+export const services = bookmi.table(
   "services",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -245,9 +233,7 @@ export const services = pgTable(
     title: text("title").notNull(),
     description: text("description"),
     priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
-    // Nullable → open-ended service (e.g. tip); non-null → time-boxed booking.
     durationMinutes: integer("duration_minutes"),
-    // When true, priceKobo is a floor — checkout accepts amounts >= priceKobo.
     payWhatYouWant: boolean("pay_what_you_want").notNull().default(false),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -258,9 +244,7 @@ export const services = pgTable(
   }),
 );
 
-// ─── Bookings ────────────────────────────────────────────────────────
-
-export const bookings = pgTable(
+export const bookings = bookmi.table(
   "bookings",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -279,7 +263,6 @@ export const bookings = pgTable(
     netToHostKobo: bigint("net_to_host_kobo", { mode: "number" }).notNull().default(0),
     status: text("status").notNull().default("pending"),
     // pending | confirmed | canceled | failed
-    // Set once the associated payment_transactions row exists.
     paymentTransactionId: uuid("payment_transaction_id").references(
       () => paymentTransactions.id,
     ),
@@ -293,9 +276,7 @@ export const bookings = pgTable(
   }),
 );
 
-// ─── Payouts (host withdrawals via Monnify disbursement) ─────────────
-
-export const payouts = pgTable(
+export const payouts = bookmi.table(
   "payouts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -307,7 +288,6 @@ export const payouts = pgTable(
     destinationAccountNumber: text("destination_account_number").notNull(),
     monnifyReference: text("monnify_reference"),
     status: text("status").notNull().default("initiated"),
-    // initiated | success | failed
     failureReason: text("failure_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -334,7 +314,3 @@ export type HostWallet = typeof hostWallets.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
-
-// primaryKey unused today but kept in imports to signal we may add composite
-// keys later (e.g. host_slots).
-void primaryKey;

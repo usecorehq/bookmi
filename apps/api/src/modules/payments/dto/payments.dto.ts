@@ -60,10 +60,6 @@ export class InitiatePaymentDto {
   idempotencyKey?: string;
 
   @IsOptional()
-  @IsString()
-  initiatorUserId?: string;
-
-  @IsOptional()
   @IsEnum(["popup", "checkout_url"])
   checkoutMode?: "popup" | "checkout_url";
 }

@@ -1,12 +1,12 @@
 {
-  "id": "66ceaf0b-480a-40a9-9a11-3c928817ec63",
+  "id": "d2bf56a9-b85f-4c46-98f0-7aa36032fb5e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.bookings": {
+    "bookmi.bookings": {
       "name": "bookings",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -163,6 +163,7 @@
           "name": "bookings_service_id_services_id_fk",
           "tableFrom": "bookings",
           "tableTo": "services",
+          "schemaTo": "bookmi",
           "columnsFrom": [
             "service_id"
           ],
@@ -176,6 +177,7 @@
           "name": "bookings_host_id_host_profiles_id_fk",
           "tableFrom": "bookings",
           "tableTo": "host_profiles",
+          "schemaTo": "bookmi",
           "columnsFrom": [
             "host_id"
           ],
@@ -189,6 +191,7 @@
           "name": "bookings_payment_transaction_id_payment_transactions_id_fk",
           "tableFrom": "bookings",
           "tableTo": "payment_transactions",
+          "schemaTo": "bookmi",
           "columnsFrom": [
             "payment_transaction_id"
           ],
@@ -205,9 +208,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.countries": {
+    "bookmi.countries": {
       "name": "countries",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -265,9 +268,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.country_payment_providers": {
+    "bookmi.country_payment_providers": {
       "name": "country_payment_providers",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -361,9 +364,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.host_profiles": {
+    "bookmi.host_profiles": {
       "name": "host_profiles",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -462,9 +465,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.host_wallets": {
+    "bookmi.host_wallets": {
       "name": "host_wallets",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "host_id": {
           "name": "host_id",
@@ -536,6 +539,7 @@
           "name": "host_wallets_host_id_host_profiles_id_fk",
           "tableFrom": "host_wallets",
           "tableTo": "host_profiles",
+          "schemaTo": "bookmi",
           "columnsFrom": [
             "host_id"
           ],
@@ -552,9 +556,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.payment_events": {
+    "bookmi.payment_events": {
       "name": "payment_events",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -638,9 +642,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.payment_providers": {
+    "bookmi.payment_providers": {
       "name": "payment_providers",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -692,9 +696,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.payment_transactions": {
+    "bookmi.payment_transactions": {
       "name": "payment_transactions",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -883,7 +887,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"payment_transactions\".\"provider_reference\" IS NOT NULL",
+          "where": "\"bookmi\".\"payment_transactions\".\"provider_reference\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -905,7 +909,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"payment_transactions\".\"idempotency_key\" IS NOT NULL",
+          "where": "\"bookmi\".\"payment_transactions\".\"idempotency_key\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -977,9 +981,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.payment_webhook_events": {
+    "bookmi.payment_webhook_events": {
       "name": "payment_webhook_events",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -1071,7 +1075,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"payment_webhook_events\".\"processed_at\" IS NULL",
+          "where": "\"bookmi\".\"payment_webhook_events\".\"processed_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1084,9 +1088,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.payouts": {
+    "bookmi.payouts": {
       "name": "payouts",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -1181,6 +1185,7 @@
           "name": "payouts_host_id_host_profiles_id_fk",
           "tableFrom": "payouts",
           "tableTo": "host_profiles",
+          "schemaTo": "bookmi",
           "columnsFrom": [
             "host_id"
           ],
@@ -1197,9 +1202,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.services": {
+    "bookmi.services": {
       "name": "services",
-      "schema": "",
+      "schema": "bookmi",
       "columns": {
         "id": {
           "name": "id",
@@ -1295,6 +1300,7 @@
           "name": "services_host_id_host_profiles_id_fk",
           "tableFrom": "services",
           "tableTo": "host_profiles",
+          "schemaTo": "bookmi",
           "columnsFrom": [
             "host_id"
           ],
@@ -1313,7 +1319,9 @@
     }
   },
   "enums": {},
-  "schemas": {},
+  "schemas": {
+    "bookmi": "bookmi"
+  },
   "sequences": {},
   "roles": {},
   "policies": {},

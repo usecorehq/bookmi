@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,33 +6,34 @@ import {
   Param,
   Post,
 } from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  CurrentUser,
+  type AuthenticatedUser,
+} from "../../../common/decorators/current-user.decorator";
 import { InitiatePaymentDto } from "../dto/payments.dto";
 import { PaymentsService } from "../services/payments.service";
 
 /**
- * Bookmi payments API.
- *
- * Auth is not enforced yet — Day 1 wires a Supabase JWT guard that populates
- * `initiatorUserId` from the token. Until then the body carries it explicitly
- * for guest-checkout callers (the customer paying for a booking).
+ * Bookmi payments API. All endpoints require a valid Supabase JWT — the
+ * global SupabaseJwtGuard populates `@CurrentUser()` before the handler runs.
  */
+@ApiTags("payments")
+@ApiBearerAuth()
 @Controller({ path: "payments" })
 export class PaymentsController {
   constructor(private readonly payments: PaymentsService) {}
 
   @Post("initiate")
+  @ApiOperation({
+    summary:
+      "Start a payment. Server derives the reference, resolves provider by country, calls provider.initialize, returns the popup access_code or hosted redirect URL.",
+  })
   initiate(
     @Body() body: InitiatePaymentDto,
-    @Headers("idempotency-key") headerKey?: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Headers("idempotency-key") idempotencyKey?: string,
   ) {
-    // Guest checkout — until auth lands the caller must send initiatorUserId
-    // (customer's Supabase user id). It's a normal UUID; PaymentsService uses
-    // it to scope the idempotency-key uniqueness.
-    if (!body.initiatorUserId) {
-      throw new BadRequestException(
-        "initiatorUserId is required until the auth guard is wired",
-      );
-    }
     return this.payments.initiate({
       purposeType: body.purposeType,
       purposeId: body.purposeId,
@@ -42,17 +42,24 @@ export class PaymentsController {
       countryCode: body.countryCode,
       businessId: body.businessId,
       email: body.email,
-      initiatorUserId: body.initiatorUserId,
+      initiatorUserId: user.sub,
       metadata: body.metadata,
       callbackUrl: body.callbackUrl,
       checkoutMode: body.checkoutMode,
-      idempotencyKey: headerKey ?? body.idempotencyKey,
+      idempotencyKey: idempotencyKey ?? body.idempotencyKey,
     });
   }
 
   @Get(":reference/verify")
-  async verify(@Param("reference") reference: string) {
-    const tx = await this.payments.verify(reference);
+  @ApiOperation({
+    summary:
+      "Verify a transaction with the provider. Safe to call from the Monnify popup onSuccess callback — idempotent, cheap when already resolved.",
+  })
+  async verify(
+    @Param("reference") reference: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const tx = await this.payments.verify(reference, user.sub);
     return {
       reference: tx.reference,
       status: tx.status,
@@ -64,8 +71,12 @@ export class PaymentsController {
   }
 
   @Get(":reference")
-  async get(@Param("reference") reference: string) {
-    const tx = await this.payments.findByReferenceOrThrow(reference);
+  @ApiOperation({ summary: "Read the current state of a transaction (no provider round-trip)." })
+  async get(
+    @Param("reference") reference: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const tx = await this.payments.findByReferenceOrThrow(reference, user.sub);
     return {
       reference: tx.reference,
       status: tx.status,

@@ -15,8 +15,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "sourceMap": true,
-    "incremental": true
+    "sourceMap": true
   },
   "exclude": ["node_modules", "dist"]
 }
