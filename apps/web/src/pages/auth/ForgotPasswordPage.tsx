@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { AuthLayout } from "@/components/layouts/AuthLayout";
+import { SplitAuthLayout } from "@/components/layouts/SplitAuthLayout";
 import { FormMessage } from "@/components/ui/FormMessage";
 
 export default function ForgotPasswordPage() {
@@ -28,16 +28,19 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <AuthLayout>
+    <SplitAuthLayout>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold">Bookmi</h1>
-          <p className="text-sm text-muted-foreground mt-1">by Qorelly</p>
+          <img src="/images/logo.svg" alt="Bookmi" className="mx-auto h-10 w-10" />
+          <div className="mt-3 flex items-baseline justify-center gap-2">
+            <h1 className="text-3xl font-bold">Bookmi</h1>
+            <span className="text-sm text-muted-foreground">by Qorelly</span>
+          </div>
         </div>
         <div className="card p-8">
           {status === "sent" ? (
             <>
-              <h2 className="text-2xl font-semibold mb-2">Check your email</h2>
+              <h2 className="font-display text-3xl mb-2">Check your email</h2>
               <p className="text-sm text-muted-foreground mb-6">
                 We sent a password-reset link to <strong>{email}</strong>. Follow the link to set a
                 new password.
@@ -48,7 +51,7 @@ export default function ForgotPasswordPage() {
             </>
           ) : (
             <>
-              <h2 className="text-2xl font-semibold mb-1">Forgot password</h2>
+              <h2 className="font-display text-3xl mb-1">Forgot password</h2>
               <p className="text-sm text-muted-foreground mb-6">
                 Enter your email and we'll send you a reset link.
               </p>
@@ -79,6 +82,6 @@ export default function ForgotPasswordPage() {
           )}
         </div>
       </div>
-    </AuthLayout>
+    </SplitAuthLayout>
   );
 }
