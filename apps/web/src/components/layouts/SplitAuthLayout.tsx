@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { MapPin, X } from "lucide-react";
 
 const SLIDES = [
   "/images/login/loginimg.jpg",
@@ -17,11 +19,20 @@ const SLIDE_INTERVAL = 5000;
  */
 export function SplitAuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen grid lg:grid-cols-[35%_65%]">
+    <div className="relative min-h-screen grid lg:grid-cols-[35%_65%]">
       <div className="flex flex-col items-center justify-center bg-white px-6 py-12">
         <div className="w-full max-w-md">{children}</div>
       </div>
       <HeroSlider />
+
+      {/* Close — top right, exits auth back to landing */}
+      <Link
+        to="/"
+        aria-label="Exit to landing page"
+        className="absolute top-4 right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-700 shadow-medium backdrop-blur transition-all hover:bg-white hover:text-gray-900 active:scale-95"
+      >
+        <X className="h-4 w-4" />
+      </Link>
     </div>
   );
 }
@@ -65,19 +76,54 @@ function HeroSlider() {
         ))}
       </div>
 
-      {/* Attribution card — bottom right */}
-      <div className="absolute bottom-6 right-6 z-10 flex items-center gap-3 rounded-button bg-white px-4 py-3 shadow-medium">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-light text-sm font-semibold text-primary">
-          Q
-        </span>
-        <div className="leading-tight">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Curated by
+      {/* Profile card — bottom right */}
+      <ProfileCard />
+    </aside>
+  );
+}
+
+function ProfileCard() {
+  return (
+    <div className="absolute bottom-6 right-6 z-10 w-60 overflow-hidden rounded-3xl shadow-medium">
+      <div className="relative aspect-[3/4]">
+        <img
+          src="/images/profile/user.jpg"
+          alt="Ethan Vale"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        {/* Legibility gradients for overlaid text */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/65" />
+
+        {/* Top — name + location pill, centered */}
+        <div className="absolute top-4 left-0 right-0 flex flex-col items-center gap-2 px-3">
+          <h3 className="text-lg font-bold leading-tight text-white drop-shadow">Ethan Vale</h3>
+          <span className="inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+            <MapPin className="h-3 w-3" /> Brooklyn, NY
+          </span>
+        </div>
+
+        {/* Bottom — avatar + handle (left), Connect button (right) */}
+        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <img
+              src="/images/profile/user.jpg"
+              alt=""
+              className="h-8 w-8 shrink-0 rounded-full object-cover ring-2 ring-white/80"
+            />
+            <div className="leading-tight">
+              <div className="text-xs font-medium text-white">@ethan_val.e</div>
+              <div className="text-[11px] text-white/70">Visual Artist</div>
+            </div>
           </div>
-          <div className="text-sm font-medium text-foreground">Qorelly Studio</div>
+          <button
+            type="button"
+            className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 transition-all hover:bg-gray-100 active:scale-95"
+          >
+            Book
+          </button>
         </div>
       </div>
-    </aside>
+    </div>
   );
 }
 
