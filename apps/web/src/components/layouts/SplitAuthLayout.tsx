@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { MapPin, X } from "lucide-react";
+import { Link2, MapPin, X } from "lucide-react";
 
 const SLIDES = [
   "/images/login/loginimg.jpg",
@@ -10,20 +10,36 @@ const SLIDES = [
 ];
 const SLIDE_INTERVAL = 5000;
 
+export type ProfileCardContent = {
+  name?: string;
+  location?: string;
+  handle?: string;
+  role?: string;
+  image?: string;
+};
+
 /**
  * Split-screen auth shell — 35% form column on a solid white background,
- * 65% full-bleed image slider with a floating attribution card
- * bottom-right. Used by Login + Signup. Other auth flows stay on AuthLayout.
+ * 65% full-bleed image slider with a floating profile card bottom-right.
+ * Used by Login + Signup + Forgot-password + Onboarding.
  *
+ * Pass `card` to override the profile card's text (e.g. onboarding passes
+ * live form values so the card becomes a preview of the user's page).
  * Form column is center-aligned both axes; right column hidden on < lg.
  */
-export function SplitAuthLayout({ children }: { children: ReactNode }) {
+export function SplitAuthLayout({
+  children,
+  card,
+}: {
+  children: ReactNode;
+  card?: ProfileCardContent;
+}) {
   return (
     <div className="relative min-h-screen grid lg:grid-cols-[35%_65%]">
       <div className="flex flex-col items-center justify-center bg-white px-6 py-12">
         <div className="w-full max-w-md">{children}</div>
       </div>
-      <HeroSlider />
+      <HeroSlider card={card} />
 
       {/* Close — top right, exits auth back to landing */}
       <Link
@@ -37,7 +53,7 @@ export function SplitAuthLayout({ children }: { children: ReactNode }) {
   );
 }
 
-function HeroSlider() {
+function HeroSlider({ card }: { card?: ProfileCardContent }) {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -77,18 +93,26 @@ function HeroSlider() {
       </div>
 
       {/* Profile card — bottom right */}
-      <ProfileCard />
+      <ProfileCard card={card} />
     </aside>
   );
 }
 
-function ProfileCard() {
+function ProfileCard({ card }: { card?: ProfileCardContent }) {
+  const name = card?.name ?? "Ethan Vale";
+  const location = card?.location ?? "Brooklyn, NY";
+  const handle = card?.handle ?? "@ethan_val.e";
+  const role = card?.role ?? "Visual Artist";
+  const image = card?.image ?? "/images/profile/user.jpg";
+  const isLink = location.startsWith("book.me/");
+  const LocationIcon = isLink ? Link2 : MapPin;
+
   return (
     <div className="absolute bottom-6 right-6 z-10 w-60 overflow-hidden rounded-3xl shadow-medium">
       <div className="relative aspect-[3/4]">
         <img
-          src="/images/profile/user.jpg"
-          alt="Ethan Vale"
+          src={image}
+          alt={name}
           className="absolute inset-0 h-full w-full object-cover"
         />
         {/* Legibility gradients for overlaid text */}
@@ -96,23 +120,23 @@ function ProfileCard() {
 
         {/* Top — name + location pill, centered */}
         <div className="absolute top-4 left-0 right-0 flex flex-col items-center gap-2 px-3">
-          <h3 className="text-lg font-bold leading-tight text-white drop-shadow">Ethan Vale</h3>
+          <h3 className="text-lg font-bold leading-tight text-white drop-shadow">{name}</h3>
           <span className="inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
-            <MapPin className="h-3 w-3" /> Brooklyn, NY
+            <LocationIcon className="h-3 w-3" /> {location}
           </span>
         </div>
 
-        {/* Bottom — avatar + handle (left), Connect button (right) */}
+        {/* Bottom — avatar + handle (left), Book button (right) */}
         <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
           <div className="flex items-center gap-2 overflow-hidden">
             <img
-              src="/images/profile/user.jpg"
+              src={image}
               alt=""
               className="h-8 w-8 shrink-0 rounded-full object-cover ring-2 ring-white/80"
             />
             <div className="leading-tight">
-              <div className="text-xs font-medium text-white">@ethan_val.e</div>
-              <div className="text-[11px] text-white/70">Visual Artist</div>
+              <div className="text-xs font-medium text-white">{handle}</div>
+              <div className="text-[11px] text-white/70">{role}</div>
             </div>
           </div>
           <button

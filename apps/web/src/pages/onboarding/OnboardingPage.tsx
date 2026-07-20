@@ -99,7 +99,15 @@ export default function OnboardingPage() {
   };
 
   return (
-    <SplitAuthLayout>
+    <SplitAuthLayout
+      card={{
+        name: displayName.trim() || "Your name",
+        location: `book.me/${slug || "your-name"}`,
+        handle: slug ? `@${slug}` : "@your-name",
+        role: "Host",
+        image: "/images/profile/onboarding.jpg",
+      }}
+    >
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img src="/images/logo.svg" alt="Bookmi" className="mx-auto h-10 w-10" />
