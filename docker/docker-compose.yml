@@ -9,6 +9,25 @@ services:
     image: mailhog/mailhog:latest
     container_name: bookmi_mailhog
     ports:
-      - "1025:1025"   # SMTP
-      - "8025:8025"   # web UI
+      - "1025:1025" # SMTP
+      - "8025:8025" # web UI
     restart: unless-stopped
+
+  # Redis — backing store for the BullMQ email queue (and future queues).
+  # Bookmi's default env points at localhost:6379 DB 1, so no env changes
+  # needed. If you'd rather run Redis natively (Homebrew, apt), skip this
+  # service entirely.
+  #
+  #   docker compose -f docker/docker-compose.yml up -d redis
+  redis:
+    image: redis:7-alpine
+    container_name: bookmi_redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - bookmi_redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  bookmi_redis_data:

@@ -10,10 +10,13 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
 import {
   bookings,
-  hostWallets,
+  customers,
+  hostProfiles,
   services,
   type PaymentTransaction,
 } from "../../../drizzle/schema";
+import { EmailsService } from "../../emails/emails.service";
+import { WalletLedgerService } from "../../hosts/services/wallet-ledger.service";
 import type { VerifyResult } from "../providers/payment-provider.interface";
 import type {
   PaymentPurposeHandler,
@@ -52,6 +55,8 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
   constructor(
     @Inject(SUPABASE_DB) private readonly db: SupabaseDb,
     private readonly config: ConfigService,
+    private readonly emails: EmailsService,
+    private readonly ledger: WalletLedgerService,
   ) {}
 
   async authorizeInitiate(input: ResolveInitiateInput): Promise<void> {
@@ -157,6 +162,8 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
     const platformFeeKobo = Math.round((paidKobo * feeBps) / 10_000);
     const netToHostKobo = paidKobo - platformFeeKobo;
 
+    let didConfirm = false;
+
     // Two writes must land atomically: booking transition + wallet credit.
     // Advisory-lock the booking id so concurrent verify + webhook finalizers
     // for the same booking serialize here and only one credit sticks.
@@ -167,7 +174,9 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
         .select({
           id: bookings.id,
           hostId: bookings.hostId,
+          customerId: bookings.customerId,
           status: bookings.status,
+          slotStartAt: bookings.slotStartAt,
         })
         .from(bookings)
         .where(eq(bookings.id, purposeId))
@@ -202,22 +211,157 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
         })
         .where(eq(bookings.id, purposeId));
 
-      // Wallet upsert — a host's wallet row is expected to exist from
-      // signup, but bookmi is tolerant during early runs.
-      await trx
-        .insert(hostWallets)
-        .values({
-          hostId: current.hostId,
-          balanceKobo: netToHostKobo,
-        })
-        .onConflictDoUpdate({
-          target: hostWallets.hostId,
-          set: {
-            balanceKobo: sql`${hostWallets.balanceKobo} + ${netToHostKobo}`,
+      didConfirm = true;
+
+      // Credit the host wallet through the immutable ledger. A tip is a
+      // booking with no slot; every other booking is a booking. Same code
+      // path either way — only source_mode changes.
+      const sourceMode = current.slotStartAt === null ? "tip" : "booking";
+      await this.ledger.appendEntry({
+        trx,
+        hostId: current.hostId,
+        amountKobo: netToHostKobo,
+        type: "credit",
+        sourceType: "payment_transaction",
+        sourceMode,
+        sourceId: tx.id,
+        memo: `Booking ${purposeId.slice(0, 8)} · net of platform fee`,
+      });
+
+      // Roll up customer totals — cheap denormalization so the dashboard
+      // can sort by top spender / most recent visit without a booking join.
+      // Skipped when the booking wasn't customer-linked (legacy rows,
+      // dashboard-manual bookings that skipped the customer step).
+      if (current.customerId) {
+        // `now()` inside the SQL template avoids serializing a JS Date as
+        // a bind parameter — postgres-js only auto-serializes Date on
+        // typed column assignments, not inside raw sql interpolations.
+        await trx
+          .update(customers)
+          .set({
+            totalBookings: sql`${customers.totalBookings} + 1`,
+            totalSpentKobo: sql`${customers.totalSpentKobo} + ${paidKobo}`,
+            lastBookingAt: new Date(),
+            firstBookingAt: sql`COALESCE(${customers.firstBookingAt}, now())`,
             updatedAt: new Date(),
+          })
+          .where(eq(customers.id, current.customerId));
+      }
+    });
+
+    // Emails fire post-tx so a SMTP hiccup can't unwind a settled booking.
+    // Only fire on the FIRST confirm — replays (webhook after verify already
+    // landed) skip the tx block and shouldn't re-send.
+    if (didConfirm) {
+      await this.enqueueConfirmationEmails(purposeId, paidKobo, netToHostKobo);
+    }
+  }
+
+  /**
+   * Fetch host + service context and enqueue both confirmation emails.
+   * Wrapped in try/catch so a Redis/queue outage never bubbles up — the
+   * booking is already confirmed and the wallet already credited. If the
+   * emails don't send, the host can still see the booking in the dashboard
+   * and the customer has the success screen with a booking code.
+   */
+  private async enqueueConfirmationEmails(
+    bookingId: string,
+    paidKobo: number,
+    netToHostKobo: number,
+  ): Promise<void> {
+    try {
+      const [row] = await this.db
+        .select({
+          bookingId: bookings.id,
+          bookingCode: bookings.code,
+          slotStartAt: bookings.slotStartAt,
+          customerName: bookings.customerName,
+          customerEmail: bookings.customerEmail,
+          customerPhone: bookings.customerPhone,
+          serviceIds: bookings.serviceIds,
+          hostId: bookings.hostId,
+          hostSlug: hostProfiles.slug,
+          hostDisplayName: hostProfiles.displayName,
+          hostPhone: hostProfiles.phone,
+          hostAddress: hostProfiles.address,
+          hostUserId: hostProfiles.userId,
+        })
+        .from(bookings)
+        .innerJoin(hostProfiles, eq(hostProfiles.id, bookings.hostId))
+        .where(eq(bookings.id, bookingId))
+        .limit(1);
+
+      if (!row) {
+        this.logger.warn(`Booking ${bookingId} vanished before email enqueue.`);
+        return;
+      }
+
+      const serviceRows = row.serviceIds.length
+        ? await this.db
+            .select({
+              title: services.title,
+              priceKobo: services.priceKobo,
+              durationMinutes: services.durationMinutes,
+            })
+            .from(services)
+            .where(inArray(services.id, row.serviceIds))
+        : [];
+
+      // Host email lives on auth.users — not in bookmi schema. A raw query
+      // keeps this handler free of a Supabase admin dependency.
+      const hostEmailRow = await this.db.execute<{ email: string }>(
+        sql`SELECT email FROM auth.users WHERE id = ${row.hostUserId} LIMIT 1`,
+      );
+      const hostEmail = hostEmailRow[0]?.email ?? null;
+
+      const webBaseUrl = this.config.get<string>("web.baseUrl") ?? "http://localhost:5173";
+
+      const slotStartAt = row.slotStartAt ? row.slotStartAt.toISOString() : null;
+
+      if (hostEmail) {
+        await this.emails.enqueue({
+          kind: "booking_confirmed_host",
+          to: hostEmail,
+          data: {
+            hostDisplayName: row.hostDisplayName,
+            customerName: row.customerName,
+            customerPhone: row.customerPhone ?? "",
+            customerEmail: row.customerEmail,
+            services: serviceRows,
+            slotStartAt,
+            amountKobo: paidKobo,
+            netToHostKobo,
+            bookingCode: row.bookingCode ?? "",
+            manageBookingUrl: `${webBaseUrl}/dashboard/bookings`,
           },
         });
-    });
+      } else {
+        this.logger.warn(`No host email on file for host ${row.hostId} — skipping host email.`);
+      }
+
+      await this.emails.enqueue({
+        kind: "booking_confirmed_customer",
+        to: row.customerEmail,
+        data: {
+          customerName: row.customerName,
+          hostDisplayName: row.hostDisplayName,
+          hostSlug: row.hostSlug,
+          hostPhone: row.hostPhone,
+          hostAddress: row.hostAddress,
+          services: serviceRows,
+          slotStartAt,
+          amountKobo: paidKobo,
+          bookingCode: row.bookingCode ?? "",
+          publicPageUrl: `${webBaseUrl}/${row.hostSlug}`,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to enqueue confirmation emails for booking ${bookingId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   async onFailure(tx: PaymentTransaction, _result?: VerifyResult): Promise<void> {

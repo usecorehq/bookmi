@@ -15,6 +15,41 @@
       "when": 1784443013097,
       "tag": "0001_hosts_operating_hours_bookings_code",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784470026985,
+      "tag": "0002_services_type_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784472089526,
+      "tag": "0003_customers",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784485801697,
+      "tag": "0004_booking_refund",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784487593323,
+      "tag": "0005_moneyout_idempotency_otp",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784508783512,
+      "tag": "0006_wallet_ledger",
+      "breakpoints": true
     }
   ]
 }

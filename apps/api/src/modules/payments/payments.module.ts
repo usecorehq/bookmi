@@ -8,8 +8,10 @@ import { MonnifyProvider } from "./providers/monnify.provider";
 import { PurposeHandlerRegistry } from "./purposes/purpose-handler.registry";
 import { PAYMENT_PURPOSE_HANDLERS } from "./purposes/purpose-handler.interface";
 import { BookingCheckoutHandler } from "./purposes/booking-checkout.handler";
+import { WalletLedgerModule } from "../hosts/wallet-ledger.module";
 
 @Module({
+  imports: [WalletLedgerModule],
   controllers: [PaymentsController, PaymentsWebhookController],
   providers: [
     // Provider adapters — only Monnify today. Paystack/Flutterwave slot in

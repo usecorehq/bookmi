@@ -251,6 +251,19 @@ export const services = bookmi.table(
     hostId: uuid("host_id")
       .notNull()
       .references(() => hostProfiles.id, { onDelete: "cascade" }),
+    /**
+     * 'booking' → shows in the wizard (requires date + time).
+     * 'tip'     → skips calendar entirely; direct-share link goes straight
+     *             to a pay-what-you-want amount picker. Used for Buy Me a
+     *             Coffee-style receiving.
+     */
+    type: text("type").notNull().default("booking"),
+    /**
+     * Per-host slug. URL surface: `/<host-slug>/<service-slug>` — pre-selects
+     * this service in the wizard (booking) or opens the tip page (tip).
+     * Auto-generated from title on create, uniquified with a numeric suffix.
+     */
+    slug: text("slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),
     priceKobo: bigint("price_kobo", { mode: "number" }).notNull(),
@@ -262,6 +275,42 @@ export const services = bookmi.table(
   },
   (t) => ({
     hostIdx: index("svc_host_idx").on(t.hostId, t.active),
+    slugUniq: uniqueIndex("svc_host_slug_uniq").on(t.hostId, t.slug),
+  }),
+);
+
+export const customers = bookmi.table(
+  "customers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Nullable — anonymous tippers may skip it. Unique per host when set. */
+    phone: text("phone"),
+    email: text("email"),
+    /** Host-authored notes (allergies, preferences). Not shown to the customer. */
+    notes: text("notes"),
+    /**
+     * Rolled up from bookings on settlement. Cheap denormalization so the
+     * customer list can sort by "top spender" without a join.
+     */
+    totalBookings: integer("total_bookings").notNull().default(0),
+    totalSpentKobo: bigint("total_spent_kobo", { mode: "number" }).notNull().default(0),
+    firstBookingAt: timestamp("first_booking_at", { withTimezone: true }),
+    lastBookingAt: timestamp("last_booking_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostIdx: index("cust_host_idx").on(t.hostId),
+    // Partial-unique on phone so the storefront's phone-first dedup lookup
+    // is enforced at the DB level; multiple no-phone rows per host are OK.
+    hostPhoneUniq: uniqueIndex("cust_host_phone_uniq")
+      .on(t.hostId, t.phone)
+      .where(sql`${t.phone} IS NOT NULL`),
+    hostNameIdx: index("cust_host_name_idx").on(t.hostId, t.name),
   }),
 );
 
@@ -272,6 +321,14 @@ export const bookings = bookmi.table(
     hostId: uuid("host_id")
       .notNull()
       .references(() => hostProfiles.id),
+    /**
+     * The customer this booking belongs to. Nullable because legacy rows
+     * (pre-migration) won't have one and dashboard bookings might skip the
+     * customer step. Populated from `resolveOrCreate` on public checkout.
+     */
+    customerId: uuid("customer_id").references(() => customers.id, {
+      onDelete: "set null",
+    }),
     /**
      * The services this booking covers. UUID[] to support multi-select in the
      * customer wizard (see images 11–13). Cannot be a Postgres FK on an array
@@ -303,6 +360,16 @@ export const bookings = bookmi.table(
     paymentTransactionId: uuid("payment_transaction_id").references(
       () => paymentTransactions.id,
     ),
+    /**
+     * Cumulative amount refunded to the customer, in kobo. Nullable so
+     * pre-refund rows read as untouched (vs. a coerced 0). Partial refunds
+     * accumulate here; a full refund equals `amountKobo`.
+     */
+    refundedAmountKobo: bigint("refunded_amount_kobo", { mode: "number" }),
+    /** Host-supplied free-form note attached at refund time — audit trail. */
+    refundReason: text("refund_reason"),
+    /** Timestamp of the most recent refund. Null until the first refund lands. */
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -325,11 +392,145 @@ export const payouts = bookmi.table(
     monnifyReference: text("monnify_reference"),
     status: text("status").notNull().default("initiated"),
     failureReason: text("failure_reason"),
+    /**
+     * Client-supplied idempotency token. Same host + same key = same payout
+     * row — a retried request lands on the cached response instead of a
+     * second disbursement. Nullable so pre-migration rows read as legacy.
+     */
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
     hostIdx: index("po_host_idx").on(t.hostId, t.status),
+    idempotencyUniq: uniqueIndex("po_host_idempotency_uniq")
+      .on(t.hostId, t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} IS NOT NULL`),
+  }),
+);
+
+/**
+ * Per-operation ledger for refund disbursements. Insert-first pattern: a row
+ * is created before Monnify is touched. The (booking_id, idempotency_key)
+ * unique constraint is the retry-safety edge — the same idempotency key from
+ * a client double-click hits the cache and returns the existing row rather
+ * than minting a second disbursement.
+ *
+ * `monnify_reference` is deterministic — `refund:<row.id>` — so a network
+ * retry to Monnify with the same reference is deduped provider-side too.
+ */
+export const refunds = bookmi.table(
+  "refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => bookings.id),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    destinationBankCode: text("destination_bank_code").notNull(),
+    destinationAccountNumber: text("destination_account_number").notNull(),
+    destinationAccountName: text("destination_account_name").notNull(),
+    /** Set after the provider returns — until then, the disbursement isn't dedup-anchored on the provider side. */
+    monnifyReference: text("monnify_reference"),
+    status: text("status").notNull().default("processing"),
+    // processing | success | failed
+    failureReason: text("failure_reason"),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostIdx: index("rf_host_idx").on(t.hostId),
+    bookingIdempotencyUniq: uniqueIndex("rf_booking_idempotency_uniq").on(
+      t.bookingId,
+      t.idempotencyKey,
+    ),
+    monnifyRefUniq: uniqueIndex("rf_monnify_ref_uniq")
+      .on(t.monnifyReference)
+      .where(sql`${t.monnifyReference} IS NOT NULL`),
+  }),
+);
+
+/**
+ * Immutable hash-chained wallet ledger. Every credit / debit against a
+ * `host_wallets.balance_kobo` MUST land as an entry here, inside the same
+ * transaction that mutates the balance. That gives us a tamper-evident audit
+ * trail: each row stores the wallet balance before + after, and the hash of
+ * every prior entry, so a single altered kobo anywhere in a host's history
+ * breaks the chain from that row forward.
+ *
+ * `status` is intentionally mutable (pending → success/failed) so late
+ * webhook flips can be reconciled without inserting a compensating row for
+ * every state transition. The hash EXCLUDES `status` and `updated_at` so a
+ * status flip does NOT invalidate the chain; every other column is covered.
+ *
+ * `source_type` names the domain table that produced the entry
+ * (`payment_transaction` | `payout` | `refund`), `source_id` links to that
+ * row's uuid, and `source_mode` describes the business intent
+ * (`booking` | `tip` | `withdrawal` | `refund`). Both together answer
+ * "what caused this ₦ delta?" without a join.
+ */
+export const walletLedger = bookmi.table(
+  "wallet_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    type: text("type").notNull(),
+    // 'credit' | 'debit'
+    sourceId: uuid("source_id"),
+    sourceType: text("source_type").notNull(),
+    // 'payment_transaction' | 'payout' | 'refund'
+    sourceMode: text("source_mode").notNull(),
+    // 'booking' | 'tip' | 'withdrawal' | 'refund'
+    balanceBeforeKobo: bigint("balance_before_kobo", { mode: "number" }).notNull(),
+    balanceAfterKobo: bigint("balance_after_kobo", { mode: "number" }).notNull(),
+    status: text("status").notNull().default("success"),
+    // 'pending' | 'success' | 'failed' | 'cancelled'
+    memo: text("memo"),
+    currentHash: text("current_hash").notNull(),
+    prevHash: text("prev_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostCreatedIdx: index("wl_host_created_idx").on(t.hostId, t.createdAt),
+    sourceIdx: index("wl_source_idx").on(t.sourceType, t.sourceId),
+    hashUniq: uniqueIndex("wl_hash_uniq").on(t.currentHash),
+  }),
+);
+
+/**
+ * Short-lived OTP challenges for money-out operations (refund + withdraw).
+ * SHA256(code) is stored — the plaintext lives only in the user's inbox for
+ * the 5-minute window. `failed_attempts` self-locks the challenge at 5 to
+ * kill brute-force.
+ */
+export const securityChallenges = bookmi.table(
+  "security_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    purpose: text("purpose").notNull(),
+    // 'refund_booking' | 'withdraw_funds'
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    failedAttempts: integer("failed_attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userPurposeExpiryIdx: index("sc_user_purpose_expiry_idx").on(
+      t.userId,
+      t.purpose,
+      t.expiresAt,
+    ),
   }),
 );
 
@@ -349,7 +550,21 @@ export type HostProfile = typeof hostProfiles.$inferSelect;
 export type HostWallet = typeof hostWallets.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
+export type Refund = typeof refunds.$inferSelect;
+export type NewRefund = typeof refunds.$inferInsert;
+export type SecurityChallenge = typeof securityChallenges.$inferSelect;
+export type WalletLedgerEntry = typeof walletLedger.$inferSelect;
+export type NewWalletLedgerEntry = typeof walletLedger.$inferInsert;
+
+export type LedgerEntryType = "credit" | "debit";
+export type LedgerSourceType = "payment_transaction" | "payout" | "refund";
+export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund";
+export type LedgerEntryStatus = "pending" | "success" | "failed" | "cancelled";
+
+export type RefundStatus = "processing" | "success" | "failed";
+export type SecurityChallengePurpose = "refund_booking" | "withdraw_funds";
 
 export type BookingStatus =
   | "pending"

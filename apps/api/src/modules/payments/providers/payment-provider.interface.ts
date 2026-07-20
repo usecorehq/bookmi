@@ -93,6 +93,42 @@ export interface ParsedWebhook {
   raw: unknown;
 }
 
+/**
+ * Nigerian bank returned by the disbursement provider. `code` is the CBN /
+ * NIBSS bank code (Monnify calls this `code`, e.g. `"044"` for Access Bank).
+ * Not all providers include a logo URL — leave it undefined when absent.
+ */
+export interface Bank {
+  code: string;
+  name: string;
+  logoUrl?: string | null;
+}
+
+/**
+ * Single-transfer disbursement input. Providers wire this to their outbound
+ * bank-transfer API (Monnify's `POST /api/v2/disbursements/single`).
+ *
+ * `reference` is client-minted and MUST be unique per attempted transfer —
+ * providers use it as the idempotency key. Callers should mint something
+ * like `refund:<bookingId>:<uuidv4-slice>` and persist it before firing.
+ */
+export interface DisburseInput {
+  reference: string;
+  amountMinor: number;
+  currency?: string;
+  destinationBankCode: string;
+  destinationAccountNumber: string;
+  destinationAccountName: string;
+  /** Bank-statement narration (short, e.g. "Refund for booking #ABCD"). */
+  narration?: string;
+}
+
+export interface DisburseResult {
+  providerReference: string;
+  status: "pending" | "processing" | "success" | "failed";
+  raw?: unknown;
+}
+
 export interface PaymentProvider {
   readonly code: PaymentProviderCode;
 
@@ -114,6 +150,23 @@ export interface PaymentProvider {
   ): Promise<void>;
 
   chargeAuthorization?(input: ChargeAuthorizationInput): Promise<VerifyResult>;
+
+  /**
+   * Disbursement helpers — payout account setup. Providers that don't support
+   * transfers (or that we haven't wired transfers for yet) omit these.
+   */
+  listBanks?(): Promise<Bank[]>;
+  resolveBankAccount?(input: {
+    bankCode: string;
+    accountNumber: string;
+  }): Promise<{ accountName: string; bankName: string }>;
+
+  /**
+   * Initiate a single-transfer disbursement. Providers that don't support
+   * transfers (or that we haven't wired transfers for yet) omit this — the
+   * caller must check for undefined before invoking.
+   */
+  disburse?(input: DisburseInput): Promise<DisburseResult>;
 }
 
 export const PAYMENT_PROVIDERS = Symbol("PAYMENT_PROVIDERS");

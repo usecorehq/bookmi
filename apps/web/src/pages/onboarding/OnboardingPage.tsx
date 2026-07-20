@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
 import { FormMessage } from "@/components/ui/FormMessage";
+import { AvatarUploader } from "@/components/upload/AvatarUploader";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDebounce } from "@/hooks/useDebounce";
 import { apiFetch } from "@/lib/api";
@@ -24,6 +25,7 @@ export default function OnboardingPage() {
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -85,10 +87,25 @@ export default function OnboardingPage() {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
+      // POST creates the profile with just slug + displayName. If the user
+      // uploaded an avatar, we PATCH it in a second call — kept separate so a
+      // failed avatar PATCH can't roll back the (already-durable) profile row.
       await apiFetch<{ profile: HostProfile }>("/hosts/me/profile", {
         method: "POST",
         body: JSON.stringify({ slug: debouncedSlug, displayName: displayName.trim() }),
       });
+      if (avatarUrl) {
+        try {
+          await apiFetch<{ profile: HostProfile }>("/hosts/me/profile", {
+            method: "PATCH",
+            body: JSON.stringify({ avatarUrl }),
+          });
+        } catch (patchErr) {
+          console.error("Avatar PATCH after profile create failed:", patchErr);
+          // Non-fatal — user still has a valid profile; they can add the
+          // photo again on the profile page.
+        }
+      }
       await refreshProfile();
       navigate("/dashboard", { replace: true });
     } catch (err) {
@@ -97,6 +114,14 @@ export default function OnboardingPage() {
       setSubmitting(false);
     }
   };
+
+  const avatarInitials = displayName
+    .split(/\s+/)
+    .map((s) => s[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
     <AuthLayout>
@@ -113,6 +138,15 @@ export default function OnboardingPage() {
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="flex justify-center pb-2">
+              <AvatarUploader
+                value={avatarUrl || null}
+                onUploaded={(url) => setAvatarUrl(url)}
+                initials={avatarInitials}
+                folder="bookmi/avatars"
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-medium mb-2">Display name</label>
               <input

@@ -18,6 +18,8 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
       serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY!,
       jwtSecret: env.SUPABASE_JWT_SECRET!,
       dbUrl: env.SUPABASE_DB_URL!,
+      /** Secret used to verify GoTrue Send Email hook requests (optional). */
+      emailHookSecret: env.SUPABASE_EMAIL_HOOK_SECRET,
     },
 
     monnify: {
@@ -26,6 +28,13 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
       secretKey: env.MONNIFY_SECRET_KEY!,
       contractCode: env.MONNIFY_CONTRACT_CODE!,
       webhookSecret: env.MONNIFY_WEBHOOK_SECRET!,
+      /**
+       * Linked Monnify disbursement wallet account number — the source of
+       * funds for outbound transfers (refunds, host payouts). Required for
+       * MonnifyProvider.disburse(); if unset, the call throws so callers see
+       * a clear misconfiguration error instead of a Monnify 4xx.
+       */
+      disbursementWallet: env.MONNIFY_DISBURSEMENT_WALLET,
     },
 
     platform: {
@@ -46,6 +55,19 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
     web: {
       /** Public URL of the frontend — used to construct links in emails. */
       baseUrl: env.WEB_BASE_URL ?? "http://localhost:5173",
+    },
+
+    redis: {
+      host: env.REDIS_HOST ?? "localhost",
+      port: parseInt(env.REDIS_PORT ?? "6379", 10),
+      password: env.REDIS_PASSWORD ?? "",
+      queueDb: parseInt(env.REDIS_QUEUE_DB ?? "1", 10),
+    },
+
+    bullBoard: {
+      /** If both are set, mount the Bull Board UI at /api/admin/queues with basic auth. */
+      user: env.BULL_BOARD_USER ?? "",
+      pass: env.BULL_BOARD_PASS ?? "",
     },
   };
 }

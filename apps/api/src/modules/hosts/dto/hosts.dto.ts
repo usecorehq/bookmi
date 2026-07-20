@@ -87,7 +87,23 @@ export class UpdateHostProfileDto extends createZodDto(UpdateHostProfileSchema) 
 
 // ─── Services ──────────────────────────────────────────────────────────
 
+export const SERVICE_TYPES = ["booking", "tip"] as const;
+export type ServiceType = (typeof SERVICE_TYPES)[number];
+
+/**
+ * A service's slug is per-host, so it can share the same regex as the host
+ * slug but is exempt from RESERVED_SLUGS (those apply to the top-level path).
+ */
+export const ServiceSlugSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])?$/,
+    "Slug must be 3–60 lowercase alphanumeric characters or hyphens.",
+  );
+
 const ServiceBase = {
+  type: z.enum(SERVICE_TYPES).optional(),
+  slug: ServiceSlugSchema.optional(),
   title: z.string().min(1).max(120),
   description: z.string().max(500).nullable().optional(),
   priceKobo: z.number().int().nonnegative(),
@@ -101,6 +117,8 @@ export class CreateServiceDto extends createZodDto(CreateServiceSchema) {}
 
 export const UpdateServiceSchema = z
   .object({
+    type: ServiceBase.type,
+    slug: ServiceBase.slug,
     title: ServiceBase.title.optional(),
     description: ServiceBase.description,
     priceKobo: ServiceBase.priceKobo.optional(),
@@ -162,3 +180,68 @@ export const UpdateHostBookingSchema = z
   })
   .strict();
 export class UpdateHostBookingDto extends createZodDto(UpdateHostBookingSchema) {}
+
+// ─── Wallet — bank verification + payout account ───────────────────────
+
+/** POST /hosts/me/wallet/verify-bank-account — resolve account name via provider. */
+export const VerifyBankAccountSchema = z
+  .object({
+    bankCode: z.string().min(1).max(10),
+    accountNumber: z
+      .string()
+      .regex(/^\d{10}$/, "Account number must be 10 digits"),
+  })
+  .strict();
+export class VerifyBankAccountDto extends createZodDto(VerifyBankAccountSchema) {}
+
+/** POST /hosts/me/wallet/payout-account — persist the verified triple. */
+export const SavePayoutAccountSchema = z
+  .object({
+    bankCode: z.string().min(1).max(10),
+    accountNumber: z
+      .string()
+      .regex(/^\d{10}$/, "Account number must be 10 digits"),
+    accountName: z.string().min(1).max(120),
+  })
+  .strict();
+export class SavePayoutAccountDto extends createZodDto(SavePayoutAccountSchema) {}
+
+// ─── Refund ────────────────────────────────────────────────────────────
+
+/**
+ * POST /hosts/me/bookings/:id/refund — sends money back to the customer's
+ * bank account and debits the host wallet. `accountName` is what the client
+ * saw after auto-verify; the server re-resolves it against the provider and
+ * bounces the request on a mismatch.
+ *
+ * The client MUST also send `x-idempotency-key` and `x-otp-code` headers
+ * (enforced at the controller layer). The idempotency key anchors the
+ * refund row so a retried request lands on the cached response rather than
+ * a second disbursement.
+ */
+export const RefundBookingSchema = z
+  .object({
+    bankCode: z.string().min(1).max(10),
+    accountNumber: z
+      .string()
+      .regex(/^\d{10}$/, "Account number must be 10 digits"),
+    accountName: z.string().min(1).max(120),
+    amountKobo: z.number().int().positive(),
+    reason: z.string().max(500).optional(),
+  })
+  .strict();
+export class RefundBookingDto extends createZodDto(RefundBookingSchema) {}
+
+// ─── Withdraw ──────────────────────────────────────────────────────────
+
+/**
+ * POST /hosts/me/wallet/withdraw — pay the host from their wallet to the
+ * saved payout account. Amount is in the body; destination + OTP + idempotency
+ * key are read from headers so the request shape mirrors refund.
+ */
+export const WithdrawSchema = z
+  .object({
+    amountKobo: z.number().int().positive(),
+  })
+  .strict();
+export class WithdrawDto extends createZodDto(WithdrawSchema) {}

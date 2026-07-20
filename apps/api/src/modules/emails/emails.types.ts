@@ -8,8 +8,34 @@
  * queue later without changing callsites.
  */
 
-export type EmailJob = BookingConfirmedHostJob | BookingConfirmedCustomerJob;
+export type EmailJob =
+  | BookingConfirmedHostJob
+  | BookingConfirmedCustomerJob
+  | BookingPaymentLinkJob
+  | ResetPasswordJob
+  | ConfirmEmailJob
+  | SecurityOtpJob;
+  
+export interface ResetPasswordJob {
+  kind: "reset_password";
+  to: string;
+  data: {
+    email: string;
+    code: string;
+    verifyUrl: string;
+  };
+}
 
+export interface ConfirmEmailJob {
+  kind: "confirm_email";
+  to: string;
+  data: {
+    email: string;
+    code: string;
+    verifyUrl: string;
+  };
+}
+  
 export interface BookingConfirmedHostJob {
   kind: "booking_confirmed_host";
   to: string;
@@ -20,6 +46,12 @@ export interface BookingConfirmedCustomerJob {
   kind: "booking_confirmed_customer";
   to: string;
   data: BookingConfirmedCustomerData;
+}
+
+export interface BookingPaymentLinkJob {
+  kind: "booking_payment_link";
+  to: string;
+  data: BookingPaymentLinkData;
 }
 
 // ─── Data shapes ───────────────────────────────────────────────────────
@@ -48,4 +80,32 @@ export interface BookingConfirmedCustomerData {
   amountKobo: number;
   bookingCode: string;
   publicPageUrl: string;
+}
+
+export interface SecurityOtpJob {
+  kind: "security_otp";
+  to: string;
+  data: SecurityOtpData;
+}
+
+export interface SecurityOtpData {
+  /** 6-digit plaintext code — the only place it lives. */
+  code: string;
+  /** Discriminator so the template can label the action. */
+  purpose: "refund_booking" | "withdraw_funds";
+  /** Human-facing label — "refund" or "withdrawal". */
+  purposeLabel: string;
+  /** How long until the code goes stale — used in the copy. */
+  expiresInMinutes: number;
+}
+
+export interface BookingPaymentLinkData {
+  customerName: string;
+  hostDisplayName: string;
+  serviceTitle: string;
+  amountKobo: number;
+  bookingCode: string;
+  slotStartAt: string | null;
+  /** Full URL like `${webBaseUrl}/pay/${bookingId}` where the customer completes payment. */
+  payUrl: string;
 }

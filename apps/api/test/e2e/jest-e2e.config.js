@@ -4,11 +4,11 @@ module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
   testMatch: ["<rootDir>/test/e2e/**/*.e2e-spec.ts"],
-  moduleFileExtensions: ["ts", "js", "json"],
+  moduleFileExtensions: ["ts", "tsx", "js", "json"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
   },
   transform: {
-    "^.+\\.ts$": ["ts-jest", { tsconfig: "tsconfig.json" }],
+    "^.+\\.tsx?$": ["ts-jest", { tsconfig: "tsconfig.json" }],
   },
 };

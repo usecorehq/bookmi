@@ -56,6 +56,10 @@ class EnvVars {
   @IsString()
   SUPABASE_JWT_SECRET!: string;
 
+  @IsString()
+  @IsOptional()
+  SUPABASE_EMAIL_HOOK_SECRET?: string;
+
   /**
    * Postgres connection string for the Supabase project. Local:
    *   postgres://postgres:<pw>@localhost:54322/postgres
@@ -82,6 +86,15 @@ class EnvVars {
 
   @IsString()
   MONNIFY_WEBHOOK_SECRET!: string;
+
+  /**
+   * Linked disbursement wallet account number that funds outbound transfers
+   * (refunds, host payouts). Sandbox provisions one automatically once
+   * "Wallet as Source" is enabled; prod uses the merchant's operations wallet.
+   */
+  @IsString()
+  @IsOptional()
+  MONNIFY_DISBURSEMENT_WALLET?: string;
 
   // ── Platform ──
   @IsInt()
@@ -120,6 +133,41 @@ class EnvVars {
   @IsString()
   @IsOptional()
   EMAIL_FROM_NAME: string = "Bookmi";
+
+  // ── Redis (BullMQ) ──
+  @IsString()
+  @IsOptional()
+  REDIS_HOST: string = "localhost";
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  @IsOptional()
+  REDIS_PORT: number = 6379;
+
+  @IsString()
+  @IsOptional()
+  REDIS_PASSWORD: string = "";
+
+  @IsInt()
+  @Min(0)
+  @Max(15)
+  @IsOptional()
+  REDIS_QUEUE_DB: number = 1;
+
+  // ── Bull Board admin UI (optional basic auth) ──
+  @IsString()
+  @IsOptional()
+  BULL_BOARD_USER: string = "";
+
+  @IsString()
+  @IsOptional()
+  BULL_BOARD_PASS: string = "";
+
+  // ── Frontend URL — used to build OTP + booking-confirmed links inside emails ──
+  @IsString()
+  @IsOptional()
+  WEB_BASE_URL: string = "http://localhost:5173";
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvVars {

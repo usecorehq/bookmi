@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  BadRequestException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -7,6 +8,9 @@ import {
 import { ConfigService } from "@nestjs/config";
 import { createHash, createHmac } from "node:crypto";
 import type {
+  Bank,
+  DisburseInput,
+  DisburseResult,
   InitializeInput,
   InitializeResult,
   NormalizedStatus,
@@ -58,7 +62,7 @@ export class MonnifyProvider implements PaymentProvider {
   /** Cached bearer token (~1h TTL). Refreshed lazily with a 60s safety buffer. */
   private tokenCache: { token: string; expiresAt: number } | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   async initialize(input: InitializeInput): Promise<InitializeResult> {
     const mode = readMode(input.metadata);
@@ -230,6 +234,124 @@ export class MonnifyProvider implements PaymentProvider {
     };
   }
 
+  // ─── disbursement helpers ────────────────────────────────────────
+
+  async listBanks(): Promise<Bank[]> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const res = await fetch(`${baseUrl}/api/v1/banks`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const parsed = (await res.json().catch(() => null)) as MonnifyBanksBody | null;
+    if (!res.ok || !parsed?.requestSuccessful || !Array.isArray(parsed.responseBody)) {
+      this.logger.warn(
+        `Monnify list-banks failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Monnify list banks failed");
+    }
+
+    return parsed.responseBody
+      .filter((b): b is { name: string; code: string } => !!b?.name && !!b?.code)
+      .map((b) => ({ code: b.code, name: b.name }));
+  }
+
+  async resolveBankAccount(input: {
+    bankCode: string;
+    accountNumber: string;
+  }): Promise<{ accountName: string; bankName: string }> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const url =
+      `${baseUrl}/api/v1/disbursements/account/validate` +
+      `?accountNumber=${encodeURIComponent(input.accountNumber)}` +
+      `&bankCode=${encodeURIComponent(input.bankCode)}`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const parsed = (await res.json().catch(() => null)) as MonnifyValidateBody | null;
+    if (!res.ok || !parsed?.requestSuccessful || !parsed.responseBody) {
+      this.logger.warn(
+        `Monnify validate-account failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(
+        parsed?.responseMessage ?? "Could not verify that account.",
+      );
+    }
+
+    return {
+      accountName: parsed.responseBody.accountName ?? "",
+      // Monnify's validate endpoint typically omits bankName — dropdown owns
+      // the display name, so an empty fallback is fine.
+      bankName: parsed.responseBody.bankName ?? "",
+    };
+  }
+
+  /**
+   * Initiate a single bank transfer via Monnify's disbursement API. Used by
+   * the refund flow to send money back to the customer's bank account.
+   *
+   * `POST /api/v2/disbursements/single` — auth is the bearer token, same as
+   * the collection endpoints. Requires a linked source wallet (`sourceAccountNumber`)
+   * that Monnify draws funds from; see `MONNIFY_DISBURSEMENT_WALLET`.
+   *
+   * Monnify's status vocabulary maps into our four-state enum:
+   *   SUCCESS/COMPLETED → success, PENDING → pending, PROCESSING → processing,
+   *   everything else (FAILED, REVERSED, EXPIRED, ...) → failed.
+   */
+  async disburse(input: DisburseInput): Promise<DisburseResult> {
+    const sourceAccountNumber = this.config.get<string>("monnify.disbursementWallet");
+
+    if (!sourceAccountNumber) {
+      throw new BadRequestException(
+        "Disbursement wallet not configured — set MONNIFY_DISBURSEMENT_WALLET.",
+      );
+    }
+
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const body = {
+      amount: minorToMajor(input.amountMinor),
+      reference: input.reference,
+      narration: input.narration ?? "Bookmi disbursement",
+      destinationBankCode: input.destinationBankCode,
+      destinationAccountNumber: input.destinationAccountNumber,
+      destinationAccountName: input.destinationAccountName,
+      currency: input.currency ?? "NGN",
+      sourceAccountNumber,
+    };
+
+    const res = await fetch(`${baseUrl}/api/v2/disbursements/single`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const parsed = (await res.json().catch(() => null)) as MonnifyDisburseBody | null;
+
+    if (!parsed?.requestSuccessful) {
+      this.logger.warn(
+        `Monnify disburse failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Monnify disburse failed");
+    }
+
+    return {
+      providerReference: parsed.responseBody?.reference ?? input.reference,
+      status: mapDisburseStatus(parsed.responseBody?.status),
+      raw: parsed,
+    };
+  }
+
   // ─── auth ────────────────────────────────────────────────────────
 
   private async getAccessToken(): Promise<string> {
@@ -351,6 +473,23 @@ function normalizeStatus(providerStatus: string | undefined): NormalizedStatus {
       return "pending";
     default:
       return "pending";
+  }
+}
+
+function mapDisburseStatus(
+  providerStatus: string | undefined,
+): DisburseResult["status"] {
+  switch (providerStatus?.toUpperCase()) {
+    case "SUCCESS":
+    case "COMPLETED":
+      return "success";
+    case "PENDING":
+    case "PENDING_AUTHORIZATION": //for when 
+      return "pending";
+    case "PROCESSING":
+      return "processing";
+    default:
+      return "failed";
   }
 }
 
@@ -532,4 +671,36 @@ interface MonnifyVerifyBody {
 interface MonnifyWebhookBody {
   eventType?: string;
   eventData?: MonnifyEventData;
+}
+
+interface MonnifyBanksBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseBody?: Array<{ name?: string; code?: string; ussdTemplate?: string | null }>;
+}
+
+interface MonnifyValidateBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseBody?: {
+    accountNumber?: string;
+    accountName?: string;
+    bankCode?: string;
+    bankName?: string;
+  };
+}
+
+interface MonnifyDisburseBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseBody?: {
+    /** Echoed idempotency reference — same value we minted client-side. */
+    reference?: string;
+    /** SUCCESS | COMPLETED | PENDING | PROCESSING | FAILED | REVERSED | EXPIRED. */
+    status?: string;
+    amount?: number | string;
+    fee?: number | string;
+    transactionDescription?: string;
+    dateCreated?: string;
+  };
 }
