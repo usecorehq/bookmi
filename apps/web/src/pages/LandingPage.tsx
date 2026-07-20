@@ -29,9 +29,7 @@ function Nav() {
     <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/80 backdrop-blur">
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-button bg-primary text-white font-bold">
-            b
-          </span>
+          <img src="/images/logo.svg" alt="Bookmi" className="h-8 w-8" />
           <span className="text-lg font-semibold tracking-tight">Bookmi</span>
           <span className="hidden text-xs text-muted-foreground sm:inline">by Qorelly</span>
         </Link>
@@ -332,9 +330,7 @@ function Footer() {
     <footer className="bg-white">
       <div className="container flex flex-col items-center justify-between gap-4 py-10 sm:flex-row">
         <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-button bg-primary text-sm font-bold text-white">
-            b
-          </span>
+          <img src="/images/logo.svg" alt="Bookmi" className="h-7 w-7" />
           <span className="font-semibold">Bookmi</span>
           <span className="text-xs text-muted-foreground">· by Qorelly</span>
         </div>
