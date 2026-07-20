@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
-import { AuthLayout } from "@/components/layouts/AuthLayout";
+import { SplitAuthLayout } from "@/components/layouts/SplitAuthLayout";
 import { FormMessage } from "@/components/ui/FormMessage";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -99,15 +99,18 @@ export default function OnboardingPage() {
   };
 
   return (
-    <AuthLayout>
+    <SplitAuthLayout>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold">Bookmi</h1>
-          <p className="text-sm text-muted-foreground mt-1">by Qorelly</p>
+          <img src="/images/logo.svg" alt="Bookmi" className="mx-auto h-10 w-10" />
+          <div className="mt-3 flex items-baseline justify-center gap-2">
+            <h1 className="text-3xl font-bold">Bookmi</h1>
+            <span className="text-sm text-muted-foreground">by Qorelly</span>
+          </div>
         </div>
 
         <div className="card p-8">
-          <h2 className="text-2xl font-semibold mb-1">Claim your page</h2>
+          <h2 className="font-display text-3xl mb-1">Claim your page</h2>
           <p className="text-sm text-muted-foreground mb-6">
             Pick a name and a link. You can edit both later.
           </p>
@@ -162,7 +165,7 @@ export default function OnboardingPage() {
           </form>
         </div>
       </div>
-    </AuthLayout>
+    </SplitAuthLayout>
   );
 }
 
