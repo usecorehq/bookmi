@@ -2,8 +2,21 @@
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
+  "entryFile": "main",
   "compilerOptions": {
     "deleteOutDir": true,
     "webpack": false
+  },
+  "projects": {
+    "migrate": {
+      "type": "application",
+      "root": "src",
+      "entryFile": "migrate",
+      "sourceRoot": "src",
+      "compilerOptions": {
+        "outDir": "dist",
+        "deleteOutDir": false
+      }
+    }
   }
 }

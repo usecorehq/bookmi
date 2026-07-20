@@ -16,7 +16,11 @@
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
+    /* `--primary` / `--primary-light` are hex so ThemeContext can override them
+       at runtime from `profile.accentColor`. Tailwind reads them raw via
+       `var(--primary)` — see `tailwind.config.js`. */
+    --primary: #7856FF;
+    --primary-light: #F0ECFF;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -37,7 +41,10 @@
     --foreground: 210 40% 98%;
     --card: 222.2 84% 4.9%;
     --card-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
+    /* Kept in sync with the light block — bookmi doesn't ship a dark toggle
+       yet, but if it does the accent stays a hex so ThemeContext still wins. */
+    --primary: #7856FF;
+    --primary-light: #F0ECFF;
     --primary-foreground: 222.2 47.4% 11.2%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;

@@ -5,6 +5,7 @@ import { ConfigService } from "@nestjs/config";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { cleanupOpenApiDoc } from "nestjs-zod";
 import { AppModule } from "./app.module";
+import { createBullBoardBasicAuthMiddleware } from "./modules/admin/bull-board-basic-auth.middleware";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -13,13 +14,22 @@ async function bootstrap() {
     logger: ["error", "warn", "log"],
   });
 
+  const config = app.get(ConfigService);
+
+  // Bull Board mounts a raw Express router at /api/admin/queues that bypasses
+  // Nest's guard pipeline — protect it with HTTP Basic Auth registered here,
+  // BEFORE any Nest module init runs, so nothing downstream can shadow it.
+  app.use("/api/admin/queues", createBullBoardBasicAuthMiddleware(config));
+
   app.setGlobalPrefix("api");
-  app.enableCors({ origin: true, credentials: true });
-  // Global transform-only pipe. Whitelist/forbidNonWhitelisted are OFF because
-  // every DTO in bookmi is a nestjs-zod `createZodDto`, and class-validator's
-  // whitelist would strip every field from a Zod class (no class-validator
-  // metadata → nothing on the allowlist). Unknown-field rejection is handled
-  // per-schema via `.strict()` on the Zod object.
+
+
+  const webBaseUrl = config.get<string>("web.baseUrl");
+  const isProd = config.get<string>("nodeEnv") === "production";
+  const corsOrigin = isProd && webBaseUrl ? webBaseUrl : true;
+  app.enableCors({ origin: corsOrigin, credentials: true });
+
+  
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
   // Swagger — always on in dev, harmless in prod behind an ingress rule.
@@ -36,9 +46,7 @@ async function bootstrap() {
       "bearer",
     )
     .build();
-  // cleanupOpenApiDoc post-processes zod-driven schemas so createZodDto()
-  // classes render properly under Schemas — without this, our request
-  // bodies show up as unlabelled `{}` in Swagger.
+
   SwaggerModule.setup(
     "docs",
     app,
@@ -46,7 +54,6 @@ async function bootstrap() {
     { swaggerOptions: { persistAuthorization: true } },
   );
 
-  const config = app.get(ConfigService);
   const port = config.get<number>("port", 4000);
 
   await app.listen(port);

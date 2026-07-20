@@ -1,0 +1,31 @@
+# ── git ───────────────────────────────────────────
+.git
+.gitignore
+
+# ── deps / build artifacts ─────────────────────────
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+
+# ── env files (injected by Coolify at runtime) ─────
+.env
+.env.*
+!.env.example
+apps/**/.env
+apps/**/.env.*
+
+# ── test / dev tooling ─────────────────────────────
+**/coverage
+**/test
+**/*.spec.ts
+**/*.test.ts
+**/jest.config.*
+
+# ── docs / editor ──────────────────────────────────
+docs
+*.md
+!apps/api/src/drizzle/migrations/**
+.DS_Store
+.vscode
+.idea

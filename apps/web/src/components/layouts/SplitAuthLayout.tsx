@@ -35,7 +35,7 @@ export function SplitAuthLayout({
   card?: ProfileCardContent;
 }) {
   return (
-    <div className="relative min-h-screen grid lg:grid-cols-[35%_65%]">
+    <div className="relative min-h-screen grid lg:grid-cols-2">
       <div className="flex flex-col items-center justify-center bg-white px-6 py-12">
         <div className="w-full max-w-md">{children}</div>
       </div>

@@ -20,12 +20,16 @@ export default {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        // Qorelly primary — bright violet, matches qore-menu's tokens
+        // Qorelly primary — default is bright violet (matches qore-menu's tokens),
+        // but `--primary` / `--primary-light` are rewritten at runtime by
+        // `ThemeContext` from `profile.accentColor` so every `bg-primary` /
+        // `text-primary` / `border-primary` / `bg-primary-light` re-tints
+        // without touching the DOM tree.
         primary: {
-          DEFAULT: "var(--color-primary, #7856FF)",
+          DEFAULT: "var(--primary, #7856FF)",
           foreground: "hsl(var(--primary-foreground))",
           hover: "var(--color-primary-hover, #6B4DE6)",
-          light: "var(--color-primary-light, #F0ECFF)",
+          light: "var(--primary-light, #F0ECFF)",
           dark: "var(--color-primary-dark, #5A3FD9)",
         },
         secondary: {
