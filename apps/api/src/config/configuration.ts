@@ -9,6 +9,7 @@ export type BookmiConfig = ReturnType<typeof buildConfig>;
 
 export function buildConfig(env: NodeJS.ProcessEnv) {
   return {
+    nodeEnv: (env.NODE_ENV ?? "development") as "development" | "production" | "test",
     appEnv: (env.APP_ENV ?? "dev") as "dev" | "staging" | "sandbox" | "prod",
     port: parseInt(env.PORT ?? "4000", 10),
 
