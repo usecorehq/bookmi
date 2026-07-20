@@ -25,8 +25,10 @@ async function bootstrap() {
 
   // Auth is a Bearer header, never cookies — keep CORS credential-free so
   // responses stay cacheable and origins stay an explicit allowlist.
+  const isProd = config.get<string>("nodeEnv") === "production";
+  const origins = config.get<string[]>("corsOrigins");
   app.enableCors({
-    origin: config.get<string[]>('corsOrigins') ?? [],
+    origin: origins && origins.length > 0 ? origins : (isProd ? false : true),
   });
 
 
