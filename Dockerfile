@@ -26,12 +26,12 @@ RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
 COPY --from=pruner /app/out/full/ .
 COPY turbo.json ./
 
-# 4. Build the application (nest will be found perfectly now)
+# 4. Build the application
 ENV TARGET_APP=@bookmi/api
 RUN pnpm --filter ${TARGET_APP} build
 
-# 5. Prune devDependencies cleanly for runtime allocation
-RUN pnpm --filter ${TARGET_APP} --prod deploy /app/pruned
+# 5. Prune devDependencies cleanly for runtime allocation using the pnpm v10 legacy flag
+RUN pnpm --filter ${TARGET_APP} --prod --legacy deploy /app/pruned
 
 # ─── stage 3: runtime ──────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
