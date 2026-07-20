@@ -11,11 +11,5 @@ if [ "${SKIP_MIGRATIONS:-}" != "true" ]; then
   echo "[entrypoint] Migrations complete."
 fi
 
-case "${APP_ROLE:-web}" in
-  worker)
-    exec node dist/main.worker.js
-    ;;
-  web|*)
-    exec node dist/main.js
-    ;;
-esac
+echo "[entrypoint] Starting Bookmi API (PORT=${PORT:-4000})…"
+exec node dist/main.js
