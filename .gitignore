@@ -10,9 +10,8 @@ build/
 *.tsbuildinfo
 
 # env
-.env
-.env.local
-.env.*.local
+.env*
+!.env.example
 
 # logs
 *.log
