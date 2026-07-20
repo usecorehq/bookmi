@@ -43,6 +43,13 @@
       "when": 1784487593323,
       "tag": "0005_moneyout_idempotency_otp",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784508783512,
+      "tag": "0006_wallet_ledger",
+      "breakpoints": true
     }
   ]
 }

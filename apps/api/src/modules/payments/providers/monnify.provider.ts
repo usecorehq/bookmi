@@ -62,7 +62,7 @@ export class MonnifyProvider implements PaymentProvider {
   /** Cached bearer token (~1h TTL). Refreshed lazily with a 60s safety buffer. */
   private tokenCache: { token: string; expiresAt: number } | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   async initialize(input: InitializeInput): Promise<InitializeResult> {
     const mode = readMode(input.metadata);
@@ -305,6 +305,7 @@ export class MonnifyProvider implements PaymentProvider {
    */
   async disburse(input: DisburseInput): Promise<DisburseResult> {
     const sourceAccountNumber = this.config.get<string>("monnify.disbursementWallet");
+
     if (!sourceAccountNumber) {
       throw new BadRequestException(
         "Disbursement wallet not configured — set MONNIFY_DISBURSEMENT_WALLET.",
@@ -320,6 +321,7 @@ export class MonnifyProvider implements PaymentProvider {
       narration: input.narration ?? "Bookmi disbursement",
       destinationBankCode: input.destinationBankCode,
       destinationAccountNumber: input.destinationAccountNumber,
+      destinationAccountName: input.destinationAccountName,
       currency: input.currency ?? "NGN",
       sourceAccountNumber,
     };
@@ -333,7 +335,9 @@ export class MonnifyProvider implements PaymentProvider {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     });
+
     const parsed = (await res.json().catch(() => null)) as MonnifyDisburseBody | null;
+
     if (!parsed?.requestSuccessful) {
       this.logger.warn(
         `Monnify disburse failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
@@ -480,6 +484,7 @@ function mapDisburseStatus(
     case "COMPLETED":
       return "success";
     case "PENDING":
+    case "PENDING_AUTHORIZATION": //for when 
       return "pending";
     case "PROCESSING":
       return "processing";

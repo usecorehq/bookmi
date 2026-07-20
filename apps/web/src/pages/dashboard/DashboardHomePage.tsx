@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Copy,
@@ -8,42 +8,41 @@ import {
   Wallet as WalletIcon,
   CalendarDays,
   TrendingUp,
+  Coffee,
+  Ticket,
+  RefreshCcw,
+  Banknote,
 } from "lucide-react";
-import type { Booking } from "@bookmi/shared-types";
+import type {
+  DailyGrossBucket,
+  WalletLedgerEntry,
+} from "@bookmi/shared-types";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHostWallet } from "@/hooks/useHostWallet";
-import { useHostBookings } from "@/hooks/useHostBookings";
+import { useDailyGross, useLedger } from "@/hooks/useLedger";
 import { formatNaira } from "@/lib/utils";
 
 export default function DashboardHomePage() {
   const { profile } = useAuth();
   const walletQ = useHostWallet();
-  const bookingsQ = useHostBookings({ limit: 20 });
+  const ledgerQ = useLedger({ limit: 10 });
+  const dailyQ = useDailyGross(30);
 
   const walletBalance = walletQ.data?.wallet.balanceKobo ?? 0;
-  const recentBookings = bookingsQ.data ?? [];
+  const buckets = dailyQ.data ?? [];
+  const ledger = ledgerQ.data ?? [];
 
-  // 30-day KPIs from the last 100 rows in the wallet response (recentBookings).
-  // Cheap enough for MVP; a dedicated /kpi endpoint is a v1.1.
-  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const recentThirty = (walletQ.data?.recentBookings ?? []).filter(
-    (b) => new Date(b.createdAt).getTime() >= thirtyDaysAgo,
+  // 30-day earnings straight off the chart data — sum of every booking +
+  // tip credit inside the window. Matches what the bars show, so the KPI
+  // and the chart tell the same story.
+  const bookingKobo30d = buckets.reduce((s, b) => s + b.bookingKobo, 0);
+  const tipKobo30d = buckets.reduce((s, b) => s + b.tipKobo, 0);
+  const earnings30d = bookingKobo30d + tipKobo30d;
+  const inflows30d = buckets.reduce(
+    (s, b) => s + (b.bookingKobo > 0 ? 1 : 0) + (b.tipKobo > 0 ? 1 : 0),
+    0,
   );
-  const paidThirty = recentThirty.filter(
-    (b) => b.status === "confirmed" || b.status === "completed",
-  );
-  const earnings30d = paidThirty.reduce((s, b) => s + b.netToHostKobo, 0);
-  const bookingInflows30d = paidThirty.filter((b) => b.slotStartAt != null).length;
-  const tipInflows30d = paidThirty.filter((b) => b.slotStartAt == null).length;
-  const totalInflows30d = bookingInflows30d + tipInflows30d;
-  const inflowsHint =
-    totalInflows30d === 0
-      ? "No inflows yet"
-      : `${bookingInflows30d} bookings · ${tipInflows30d} tips`;
-
-  const recentBookingRows = recentBookings.filter((b) => b.slotStartAt != null).slice(0, 5);
-  const recentTipRows = recentBookings.filter((b) => b.slotStartAt == null).slice(0, 5);
 
   return (
     <div>
@@ -52,7 +51,6 @@ export default function DashboardHomePage() {
         subtitle="Here's what's happening on your Bookmi page."
       />
 
-      {/* KPI row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <StatCard
           icon={<WalletIcon className="w-5 h-5" />}
@@ -64,99 +62,222 @@ export default function DashboardHomePage() {
           icon={<TrendingUp className="w-5 h-5" />}
           label="Earnings · 30 days"
           value={formatNaira(earnings30d)}
-          hint="After fees, from confirmed + completed"
+          hint={`Bookings ${formatNaira(bookingKobo30d)} · Tips ${formatNaira(tipKobo30d)}`}
         />
         <StatCard
           icon={<CalendarDays className="w-5 h-5" />}
-          label="Inflows · 30 days"
-          value={String(totalInflows30d)}
-          hint={inflowsHint}
+          label="Active days · 30d"
+          value={String(inflows30d)}
+          hint="Days with any inflow"
         />
       </div>
 
-      {/* Share card */}
       {profile?.slug && <ShareCard slug={profile.slug} />}
 
-      {/* Recent inflows — split into bookings + tips */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-        <RecentInflowsCard
-          title="Recent bookings"
-          seeAllTo="/dashboard/bookings"
-          rows={recentBookingRows}
-          isPending={bookingsQ.isPending}
-          emptyText="No bookings yet. Share your page to get started."
+        <RecentTransactionsCard
+          rows={ledger}
+          isPending={ledgerQ.isPending}
         />
-        <RecentInflowsCard
-          title="Recent tips & donations"
-          seeAllTo="/dashboard/tips"
-          rows={recentTipRows}
-          isPending={bookingsQ.isPending}
-          emptyText="No tips yet. Add a Buy-me-a-Coffee-style service to get started."
+        <DailyGrossChartCard
+          buckets={buckets}
+          isPending={dailyQ.isPending}
         />
       </div>
     </div>
   );
 }
 
-function RecentInflowsCard({
-  title,
-  seeAllTo,
+// ─── Recent transactions (LHS) ────────────────────────────────────────
+
+function RecentTransactionsCard({
   rows,
   isPending,
-  emptyText,
 }: {
-  title: string;
-  seeAllTo: string;
-  rows: Booking[];
+  rows: WalletLedgerEntry[];
   isPending: boolean;
-  emptyText: string;
 }) {
   return (
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4 gap-2">
         <h2 className="text-lg font-semibold">
-          {title}
+          Recent transactions
           {rows.length > 0 && (
             <span className="text-muted-foreground font-normal"> · {rows.length}</span>
           )}
         </h2>
         <Link
-          to={seeAllTo}
+          to="/dashboard/wallet"
           className="text-sm text-primary hover:underline inline-flex items-center gap-1 shrink-0"
         >
-          See all <ArrowUpRight className="w-3.5 h-3.5" />
+          Open wallet <ArrowUpRight className="w-3.5 h-3.5" />
         </Link>
       </div>
       {isPending ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : rows.length === 0 ? (
-        <div className="text-sm text-muted-foreground">{emptyText}</div>
+        <div className="text-sm text-muted-foreground">
+          No transactions yet. Share your page to get started.
+        </div>
       ) : (
         <ul className="divide-y divide-gray-200">
-          {rows.map((b) => (
-            <li key={b.id} className="py-3 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium truncate">{b.customerName}</span>
-                </div>
-                <div className="text-xs text-muted-foreground truncate mt-0.5">
-                  {b.code ? `#${b.code} · ` : ""}
-                  {b.slotStartAt
-                    ? new Date(b.slotStartAt).toLocaleString()
-                    : new Date(b.createdAt).toLocaleString()}
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-sm font-medium">{formatNaira(b.amountKobo)}</div>
-                <StatusPill status={b.status} />
-              </div>
-            </li>
+          {rows.map((e) => (
+            <LedgerRow key={e.id} entry={e} />
           ))}
         </ul>
       )}
     </div>
   );
 }
+
+function LedgerRow({ entry }: { entry: WalletLedgerEntry }) {
+  const meta = MODE_META[entry.sourceMode];
+  const isCredit = entry.type === "credit";
+  return (
+    <li className="py-3 flex items-center gap-3">
+      <span
+        className={`w-9 h-9 shrink-0 flex items-center justify-center ${
+          isCredit ? "bg-primary-light text-primary" : "bg-gray-100 text-gray-600"
+        }`}
+      >
+        {meta.icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm">{meta.label}</span>
+          <StatusPill status={entry.status} />
+        </div>
+        <div className="text-xs text-muted-foreground truncate mt-0.5">
+          {entry.memo ?? meta.fallbackMemo} · {new Date(entry.createdAt).toLocaleString()}
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        <div
+          className={`text-sm font-medium ${
+            isCredit ? "text-green-700" : "text-gray-900"
+          }`}
+        >
+          {isCredit ? "+" : "−"}
+          {formatNaira(entry.amountKobo)}
+        </div>
+        <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+          Bal {formatNaira(entry.balanceAfterKobo)}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+// ─── 30-day bar chart (RHS) ───────────────────────────────────────────
+
+function DailyGrossChartCard({
+  buckets,
+  isPending,
+}: {
+  buckets: DailyGrossBucket[];
+  isPending: boolean;
+}) {
+  const maxKobo = useMemo(
+    () => buckets.reduce((m, b) => Math.max(m, b.bookingKobo + b.tipKobo), 0),
+    [buckets],
+  );
+  const totalKobo = buckets.reduce((s, b) => s + b.bookingKobo + b.tipKobo, 0);
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Earnings · 30 days</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Bookings + tips per day. Total {formatNaira(totalKobo)}.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <span className="w-2.5 h-2.5 bg-primary" /> Bookings
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="w-2.5 h-2.5 bg-amber-400" /> Tips
+          </span>
+        </div>
+      </div>
+
+      {isPending ? (
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      ) : maxKobo === 0 ? (
+        <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
+          No earnings in the last 30 days yet.
+        </div>
+      ) : (
+        <div className="h-40 flex items-end gap-[3px]" role="img" aria-label="Daily earnings for the last 30 days">
+          {buckets.map((b) => {
+            const total = b.bookingKobo + b.tipKobo;
+            const totalH = maxKobo > 0 ? Math.max(2, (total / maxKobo) * 100) : 0;
+            const bookingRatio = total > 0 ? b.bookingKobo / total : 0;
+            const tipRatio = total > 0 ? b.tipKobo / total : 0;
+            return (
+              <div
+                key={b.date}
+                className="flex-1 flex flex-col justify-end group relative"
+                title={`${formatShortDate(b.date)} · ${formatNaira(total)}`}
+              >
+                <div
+                  className="w-full flex flex-col overflow-hidden"
+                  style={{ height: `${totalH}%` }}
+                >
+                  <div
+                    className="w-full bg-amber-400"
+                    style={{ height: `${tipRatio * 100}%` }}
+                  />
+                  <div
+                    className="w-full bg-primary"
+                    style={{ height: `${bookingRatio * 100}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!isPending && buckets.length > 0 && (
+        <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
+          <span>{formatShortDate(buckets[0]!.date)}</span>
+          <span>{formatShortDate(buckets[buckets.length - 1]!.date)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── shared bits ──────────────────────────────────────────────────────
+
+interface ModeMeta {
+  label: string;
+  icon: React.ReactNode;
+  fallbackMemo: string;
+}
+const MODE_META: Record<WalletLedgerEntry["sourceMode"], ModeMeta> = {
+  booking: {
+    label: "Booking payment",
+    icon: <Ticket className="w-4 h-4" />,
+    fallbackMemo: "Booking",
+  },
+  tip: {
+    label: "Tip",
+    icon: <Coffee className="w-4 h-4" />,
+    fallbackMemo: "Tip",
+  },
+  withdrawal: {
+    label: "Withdrawal",
+    icon: <Banknote className="w-4 h-4" />,
+    fallbackMemo: "Withdrawal to bank",
+  },
+  refund: {
+    label: "Refund",
+    icon: <RefreshCcw className="w-4 h-4" />,
+    fallbackMemo: "Customer refund",
+  },
+};
 
 function StatCard({
   icon,
@@ -233,11 +354,12 @@ function ShareCard({ slug }: { slug: string }) {
 }
 
 function StatusPill({ status }: { status: string }) {
+  if (status === "success") return null;
   const label = status.replace("_", " ");
   const cls = STATUS_STYLE[status] ?? "bg-gray-100 text-gray-700";
   return (
     <span
-      className={`inline-block px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${cls}`}
+      className={`inline-block px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide ${cls}`}
     >
       {label}
     </span>
@@ -246,16 +368,26 @@ function StatusPill({ status }: { status: string }) {
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700",
-  confirmed: "bg-primary-light text-primary",
-  arrived: "bg-blue-50 text-blue-700",
-  seated: "bg-blue-50 text-blue-700",
-  completed: "bg-green-50 text-green-700",
-  canceled: "bg-gray-100 text-gray-500",
   failed: "bg-red-50 text-red-700",
-  no_show: "bg-gray-100 text-gray-500",
+  cancelled: "bg-gray-100 text-gray-500",
 };
 
 function firstName(fullName?: string | null) {
   if (!fullName) return "there";
   return fullName.split(/\s+/)[0];
 }
+
+function formatShortDate(iso: string) {
+  // buckets are YYYY-MM-DD; render as e.g. "Jul 20"
+  const parts = iso.split("-").map(Number);
+  const y = parts[0] ?? new Date().getFullYear();
+  const m = parts[1] ?? 1;
+  const d = parts[2] ?? 1;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+

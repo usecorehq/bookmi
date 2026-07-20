@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useHostWallet, type WalletView } from "@/hooks/useHostWallet";
+import { useBanks } from "@/hooks/useBanks";
 import { useRequestOtp } from "@/hooks/useSecurityOtp";
 import { useWithdraw } from "@/hooks/useWithdraw";
 import { FormMessage } from "@/components/ui/FormMessage";
@@ -206,6 +207,11 @@ function ReservedAccountCard({
 }
 
 function PayoutAccountCard({ wallet }: { wallet: HostWallet }) {
+  const { data: banks } = useBanks();
+  const bankName = useMemo(
+    () => banks?.find((b) => b.code === wallet.bankCode)?.name ?? null,
+    [banks, wallet.bankCode],
+  );
   const complete =
     wallet.bankAccountName && wallet.bankAccountNumber && wallet.bankCode;
 
@@ -252,8 +258,10 @@ function PayoutAccountCard({ wallet }: { wallet: HostWallet }) {
           <div className="font-mono font-medium mt-0.5">{wallet.bankAccountNumber}</div>
         </div>
         <div>
-          <div className="text-xs text-muted-foreground uppercase tracking-wide">Bank code</div>
-          <div className="font-mono font-medium mt-0.5">{wallet.bankCode}</div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wide">Bank</div>
+          <div className="font-medium mt-0.5">
+            {bankName ?? <span className="font-mono">{wallet.bankCode}</span>}
+          </div>
         </div>
       </div>
     </div>
@@ -269,7 +277,7 @@ function RecentBookingsCard({
   return (
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Recent bookings</h2>
+        <h2 className="text-lg font-semibold">Recent inflows</h2>
         <Link
           to="/dashboard/bookings"
           className="text-sm text-primary hover:underline inline-flex items-center gap-1"
@@ -370,6 +378,11 @@ function WithdrawModal({
 }) {
   const requestOtpMutation = useRequestOtp();
   const withdrawMutation = useWithdraw();
+  const { data: banks } = useBanks();
+  const bankName = useMemo(
+    () => banks?.find((b) => b.code === wallet.bankCode)?.name ?? null,
+    [banks, wallet.bankCode],
+  );
 
   // One idempotency key per open — a retry with the same key hits the
   // cached ledger row instead of a second disbursement.
@@ -559,8 +572,9 @@ function WithdrawModal({
                       <div className="text-sm font-medium mt-0.5 truncate">
                         {wallet.bankAccountName}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-0.5 font-mono">
-                        {wallet.bankCode} · ••••{acctLast4}
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {bankName ?? wallet.bankCode} ·{" "}
+                        <span className="font-mono">••••{acctLast4}</span>
                       </div>
                     </div>
                     <Link

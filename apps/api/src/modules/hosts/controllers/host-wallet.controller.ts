@@ -30,7 +30,7 @@ import { HostWalletService } from "../services/host-wallet.service";
 @ApiBearerAuth()
 @Controller({ path: "hosts/me/wallet" })
 export class HostWalletController {
-  constructor(private readonly wallet: HostWalletService) {}
+  constructor(private readonly wallet: HostWalletService) { }
 
   @Get()
   @ApiOperation({
@@ -98,11 +98,13 @@ export class HostWalletController {
         "x-otp-code header required (6 digits).",
       );
     }
+
     const result = await this.wallet.withdraw(user.sub, {
       amountKobo: body.amountKobo,
       idempotencyKey,
       otpCode,
     });
+
     if (result.cached && result.payout.status === "failed") {
       throw new BadRequestException(
         result.payout.failureReason ?? "Withdrawal previously failed.",

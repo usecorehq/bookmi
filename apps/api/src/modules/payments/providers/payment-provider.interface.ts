@@ -118,6 +118,7 @@ export interface DisburseInput {
   currency?: string;
   destinationBankCode: string;
   destinationAccountNumber: string;
+  destinationAccountName: string;
   /** Bank-statement narration (short, e.g. "Refund for booking #ABCD"). */
   narration?: string;
 }

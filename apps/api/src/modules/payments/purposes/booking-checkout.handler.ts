@@ -12,11 +12,11 @@ import {
   bookings,
   customers,
   hostProfiles,
-  hostWallets,
   services,
   type PaymentTransaction,
 } from "../../../drizzle/schema";
 import { EmailsService } from "../../emails/emails.service";
+import { WalletLedgerService } from "../../hosts/services/wallet-ledger.service";
 import type { VerifyResult } from "../providers/payment-provider.interface";
 import type {
   PaymentPurposeHandler,
@@ -56,6 +56,7 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
     @Inject(SUPABASE_DB) private readonly db: SupabaseDb,
     private readonly config: ConfigService,
     private readonly emails: EmailsService,
+    private readonly ledger: WalletLedgerService,
   ) {}
 
   async authorizeInitiate(input: ResolveInitiateInput): Promise<void> {
@@ -175,6 +176,7 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
           hostId: bookings.hostId,
           customerId: bookings.customerId,
           status: bookings.status,
+          slotStartAt: bookings.slotStartAt,
         })
         .from(bookings)
         .where(eq(bookings.id, purposeId))
@@ -211,21 +213,20 @@ export class BookingCheckoutHandler implements PaymentPurposeHandler {
 
       didConfirm = true;
 
-      // Wallet upsert — a host's wallet row is expected to exist from
-      // signup, but bookmi is tolerant during early runs.
-      await trx
-        .insert(hostWallets)
-        .values({
-          hostId: current.hostId,
-          balanceKobo: netToHostKobo,
-        })
-        .onConflictDoUpdate({
-          target: hostWallets.hostId,
-          set: {
-            balanceKobo: sql`${hostWallets.balanceKobo} + ${netToHostKobo}`,
-            updatedAt: new Date(),
-          },
-        });
+      // Credit the host wallet through the immutable ledger. A tip is a
+      // booking with no slot; every other booking is a booking. Same code
+      // path either way — only source_mode changes.
+      const sourceMode = current.slotStartAt === null ? "tip" : "booking";
+      await this.ledger.appendEntry({
+        trx,
+        hostId: current.hostId,
+        amountKobo: netToHostKobo,
+        type: "credit",
+        sourceType: "payment_transaction",
+        sourceMode,
+        sourceId: tx.id,
+        memo: `Booking ${purposeId.slice(0, 8)} · net of platform fee`,
+      });
 
       // Roll up customer totals — cheap denormalization so the dashboard
       // can sort by top spender / most recent visit without a booking join.

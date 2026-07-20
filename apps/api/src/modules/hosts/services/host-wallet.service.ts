@@ -19,6 +19,7 @@ import {
 import { PaymentProviderRegistry } from "../../payments/providers/payment-provider.registry";
 import type { Bank } from "../../payments/providers/payment-provider.interface";
 import { SecurityService } from "../../security/security.service";
+import { WalletLedgerService } from "./wallet-ledger.service";
 
 export interface WalletView {
   wallet: HostWallet;
@@ -52,6 +53,7 @@ export class HostWalletService {
     @Inject(SUPABASE_DB) private readonly db: SupabaseDb,
     private readonly registry: PaymentProviderRegistry,
     private readonly security: SecurityService,
+    private readonly ledger: WalletLedgerService,
   ) {}
 
   async get(userId: string): Promise<WalletView> {
@@ -251,6 +253,10 @@ export class HostWalletService {
       })
       .onConflictDoNothing({
         target: [payouts.hostId, payouts.idempotencyKey],
+        // po_host_idempotency_uniq is partial (WHERE idempotency_key IS NOT
+        // NULL). Postgres won't pick a partial index as the ON CONFLICT
+        // arbiter without the matching predicate — 42P10 otherwise.
+        where: sql`${payouts.idempotencyKey} IS NOT NULL`,
       })
       .returning();
 
@@ -273,12 +279,15 @@ export class HostWalletService {
       return { payout: cached, cached: true };
     }
 
-    // Step 2 — OTP gate. Failure marks the row so retries surface the same
-    // failure without hitting the OTP service again.
+    // Step 2 — OTP gate. Failure is pre-disburse, so no money has moved —
+    // tear down the claim row so the user can retry the modal with a fresh
+    // OTP under the same idempotency key. Leaving the row as `failed` would
+    // trap the key on the cached failure and every retry would come back as
+    // "otp_failed" even after they type the right code.
     try {
       await this.security.verifyAndConsume(userId, "withdraw_funds", input.otpCode);
     } catch (err) {
-      await this.markPayoutFailed(inserted.id, "otp_failed");
+      await this.db.delete(payouts).where(eq(payouts.id, inserted.id));
       throw err;
     }
 
@@ -303,7 +312,9 @@ export class HostWalletService {
           );
         }
 
-        const reference = `payout:${inserted.id}`;
+        // Monnify's reference validator only accepts alphanumerics, `-`, and
+        // `_` — no colons.
+        const reference = `payout_${inserted.id}`;
         const narration = `Bookmi withdrawal ${inserted.id.slice(0, 8)}`;
 
         const result = await provider.disburse!({
@@ -312,8 +323,10 @@ export class HostWalletService {
           currency: "NGN",
           destinationBankCode: w.bankCode!,
           destinationAccountNumber: w.bankAccountNumber!,
+          destinationAccountName: w.bankAccountName!,
           narration,
         });
+
         if (result.status === "failed") {
           throw new BadRequestException(
             "Withdrawal disbursement failed — no funds were moved.",
@@ -329,7 +342,7 @@ export class HostWalletService {
           .update(payouts)
           .set({
             monnifyReference: result.providerReference,
-            status: "success",
+            status: result.status,
             updatedAt: now,
           })
           .where(eq(payouts.id, inserted.id))
@@ -338,13 +351,19 @@ export class HostWalletService {
           throw new NotFoundException("Payout row disappeared mid-update.");
         }
 
-        await trx
-          .update(hostWallets)
-          .set({
-            balanceKobo: sql`${hostWallets.balanceKobo} - ${input.amountKobo}`,
-            updatedAt: now,
-          })
-          .where(eq(hostWallets.hostId, host.id));
+        // Debit the wallet through the immutable ledger — same tx so a
+        // hash-chain gap can never happen without the payout row rolling
+        // back with it.
+        await this.ledger.appendEntry({
+          trx,
+          hostId: host.id,
+          amountKobo: input.amountKobo,
+          type: "debit",
+          sourceType: "payout",
+          sourceMode: "withdrawal",
+          sourceId: payoutRow.id,
+          memo: `Withdrawal to ${w.bankAccountNumber?.slice(-4) ?? "----"}`,
+        });
 
         this.logger.log(
           `Withdrawal ${reference} initiated for host ${host.id}: ${input.amountKobo} kobo, providerStatus=${result.status}`,

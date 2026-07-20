@@ -22,6 +22,7 @@ import {
 import { EmailsService } from "../../emails/emails.service";
 import { PaymentProviderRegistry } from "../../payments/providers/payment-provider.registry";
 import { SecurityService } from "../../security/security.service";
+import { WalletLedgerService } from "./wallet-ledger.service";
 import { generateBookingCode } from "../booking-code";
 
 /** Statuses at which a paid booking can still be refunded to the customer. */
@@ -61,6 +62,7 @@ export class HostBookingsService {
     private readonly config: ConfigService,
     private readonly providerRegistry: PaymentProviderRegistry,
     private readonly security: SecurityService,
+    private readonly ledger: WalletLedgerService,
   ) {}
 
   async list(
@@ -362,13 +364,15 @@ export class HostBookingsService {
       return { refund: cached, booking: bookingRow ?? null, cached: true };
     }
 
-    // Step 2 — OTP gate. Failing here marks the ledger row so a retry with
-    // the same key surfaces the same failure instead of hitting the OTP
-    // service again.
+    // Step 2 — OTP gate. Failure is pre-disburse, so no money has moved —
+    // tear down the claim row so the operator can retry the modal with a
+    // fresh OTP under the same idempotency key. Marking it failed would
+    // trap the key on the cached "otp_failed" state and every retry would
+    // come back as failed even after the right code is typed.
     try {
       await this.security.verifyAndConsume(userId, "refund_booking", input.otpCode);
     } catch (err) {
-      await this.markFailed(inserted.id, "otp_failed");
+      await this.db.delete(refunds).where(eq(refunds.id, inserted.id));
       throw err;
     }
 
@@ -441,7 +445,8 @@ export class HostBookingsService {
         // Deterministic Monnify reference — same idempotency key → same
         // ledger row id → same Monnify reference. Monnify dedupes on it,
         // so a broken-network retry lands on the same disbursement.
-        const reference = `refund:${inserted.id}`;
+        // Monnify's validator only accepts alphanumerics, `-`, and `_`.
+        const reference = `refund_${inserted.id}`;
         const narration = `Refund for booking #${booking.code ?? bookingId.slice(0, 8)}`;
 
         const result = await provider.disburse!({
@@ -450,6 +455,7 @@ export class HostBookingsService {
           currency: "NGN",
           destinationBankCode: input.bankCode,
           destinationAccountNumber: input.accountNumber,
+          destinationAccountName: resolved.accountName,
           narration,
         });
         if (result.status === "failed") {
@@ -495,13 +501,18 @@ export class HostBookingsService {
           throw new NotFoundException("Booking disappeared mid-refund.");
         }
 
-        await trx
-          .update(hostWallets)
-          .set({
-            balanceKobo: sql`${hostWallets.balanceKobo} - ${input.amountKobo}`,
-            updatedAt: now,
-          })
-          .where(eq(hostWallets.hostId, host.id));
+        // Debit the wallet through the immutable ledger — same tx so the
+        // refund row + booking transition + wallet delta commit as one.
+        await this.ledger.appendEntry({
+          trx,
+          hostId: host.id,
+          amountKobo: input.amountKobo,
+          type: "debit",
+          sourceType: "refund",
+          sourceMode: "refund",
+          sourceId: refundRow.id,
+          memo: `Refund for booking #${booking.code ?? bookingId.slice(0, 8)}`,
+        });
 
         this.logger.log(
           `Refund ${reference} initiated for booking ${bookingId}: ${input.amountKobo} kobo, providerStatus=${providerStatus}`,

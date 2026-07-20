@@ -456,6 +456,57 @@ export const refunds = bookmi.table(
 );
 
 /**
+ * Immutable hash-chained wallet ledger. Every credit / debit against a
+ * `host_wallets.balance_kobo` MUST land as an entry here, inside the same
+ * transaction that mutates the balance. That gives us a tamper-evident audit
+ * trail: each row stores the wallet balance before + after, and the hash of
+ * every prior entry, so a single altered kobo anywhere in a host's history
+ * breaks the chain from that row forward.
+ *
+ * `status` is intentionally mutable (pending → success/failed) so late
+ * webhook flips can be reconciled without inserting a compensating row for
+ * every state transition. The hash EXCLUDES `status` and `updated_at` so a
+ * status flip does NOT invalidate the chain; every other column is covered.
+ *
+ * `source_type` names the domain table that produced the entry
+ * (`payment_transaction` | `payout` | `refund`), `source_id` links to that
+ * row's uuid, and `source_mode` describes the business intent
+ * (`booking` | `tip` | `withdrawal` | `refund`). Both together answer
+ * "what caused this ₦ delta?" without a join.
+ */
+export const walletLedger = bookmi.table(
+  "wallet_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    type: text("type").notNull(),
+    // 'credit' | 'debit'
+    sourceId: uuid("source_id"),
+    sourceType: text("source_type").notNull(),
+    // 'payment_transaction' | 'payout' | 'refund'
+    sourceMode: text("source_mode").notNull(),
+    // 'booking' | 'tip' | 'withdrawal' | 'refund'
+    balanceBeforeKobo: bigint("balance_before_kobo", { mode: "number" }).notNull(),
+    balanceAfterKobo: bigint("balance_after_kobo", { mode: "number" }).notNull(),
+    status: text("status").notNull().default("success"),
+    // 'pending' | 'success' | 'failed' | 'cancelled'
+    memo: text("memo"),
+    currentHash: text("current_hash").notNull(),
+    prevHash: text("prev_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostCreatedIdx: index("wl_host_created_idx").on(t.hostId, t.createdAt),
+    sourceIdx: index("wl_source_idx").on(t.sourceType, t.sourceId),
+    hashUniq: uniqueIndex("wl_hash_uniq").on(t.currentHash),
+  }),
+);
+
+/**
  * Short-lived OTP challenges for money-out operations (refund + withdraw).
  * SHA256(code) is stored — the plaintext lives only in the user's inbox for
  * the 5-minute window. `failed_attempts` self-locks the challenge at 5 to
@@ -504,6 +555,13 @@ export type Payout = typeof payouts.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
 export type NewRefund = typeof refunds.$inferInsert;
 export type SecurityChallenge = typeof securityChallenges.$inferSelect;
+export type WalletLedgerEntry = typeof walletLedger.$inferSelect;
+export type NewWalletLedgerEntry = typeof walletLedger.$inferInsert;
+
+export type LedgerEntryType = "credit" | "debit";
+export type LedgerSourceType = "payment_transaction" | "payout" | "refund";
+export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund";
+export type LedgerEntryStatus = "pending" | "success" | "failed" | "cancelled";
 
 export type RefundStatus = "processing" | "success" | "failed";
 export type SecurityChallengePurpose = "refund_booking" | "withdraw_funds";
