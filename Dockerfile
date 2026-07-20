@@ -5,15 +5,16 @@ FROM node:22-alpine AS pruner
 WORKDIR /app
 RUN npm install -g turbo
 COPY . .
-# Extracts only what @bookmi/api needs into /app/out/
-RUN turbo prune @bookmi/api --docker
+# Using an env variable escapes Coolify's text replacement string mismatch
+ENV TARGET_APP=@bookmi/api
+RUN turbo prune ${TARGET_APP} --docker
 
 # ─── stage 2: install all deps ─────────────────────────────────────────────
 FROM node:22-alpine AS deps
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
 
-# Copy only the pruned package.json files and the lockfile
+# Copy only the pruned package.json files and the lockfiles
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=pruner /app/out/pnpm-workspace.yaml ./pnpm-workspace.yaml
@@ -32,10 +33,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY turbo.json ./
 
 # Build dependencies and app automatically via Turborepo
-RUN pnpm --filter @bookmi/api build
+ENV TARGET_APP=@bookmi/api
+RUN pnpm --filter ${TARGET_APP} build
 
 # Prune devDependencies from the workspace for runtime production
-RUN pnpm --filter @bookmi/api --prod deploy /app/pruned
+RUN pnpm --filter ${TARGET_APP} --prod deploy /app/pruned
 
 # ─── stage 4: runtime ──────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
@@ -43,11 +45,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4000
 
+# curl for health probes; tini reaps zombies + forwards SIGTERM cleanly
 RUN apk add --no-cache curl tini
 
-# Grab the production ready deployment folder
+# Only the compiled output + pruned prod node_modules
 COPY --from=build /app/pruned/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist ./dist
+# Migrations live inside dist after nest build copies them
 COPY --from=build /app/apps/api/src/drizzle/migrations ./src/drizzle/migrations
 COPY --from=build /app/apps/api/package.json ./package.json
 
@@ -55,7 +59,9 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh
 
+# Non-root — Node's official image ships a `node` user (uid 1000)
 USER node
+
 EXPOSE 4000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
