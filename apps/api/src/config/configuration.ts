@@ -12,6 +12,7 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
     nodeEnv: (env.NODE_ENV ?? "development") as "development" | "production" | "test",
     appEnv: (env.APP_ENV ?? "dev") as "dev" | "staging" | "sandbox" | "prod",
     port: parseInt(env.PORT ?? "4000", 10),
+    corsOrigins: env.CORS_ORIGINS!,
 
     supabase: {
       url: env.SUPABASE_URL!,

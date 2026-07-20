@@ -1,5 +1,6 @@
-import { plainToInstance } from "class-transformer";
+import { plainToInstance, Transform } from "class-transformer";
 import {
+  IsArray,
   IsEnum,
   IsInt,
   IsOptional,
@@ -168,6 +169,19 @@ class EnvVars {
   @IsString()
   @IsOptional()
   WEB_BASE_URL: string = "http://localhost:5173";
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== "string" || !value.trim()) return [];
+    return value
+      .split(",")
+      .map((v: string) => v.trim())
+      .filter((v: string) => v.length > 0);
+  })
+  CORS_ORIGINS: string[] = [];
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvVars {

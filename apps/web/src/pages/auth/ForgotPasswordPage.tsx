@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { AuthLayout } from "@/components/layouts/AuthLayout";
+import { SplitAuthLayout } from "@/components/layouts/SplitAuthLayout";
 import { FormMessage } from "@/components/ui/FormMessage";
 
 /**
@@ -36,11 +36,14 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <AuthLayout>
+    <SplitAuthLayout>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold">Bookmi</h1>
-          <p className="text-sm text-muted-foreground mt-1">by Qorelly</p>
+          <img src="/images/logo.svg" alt="Bookmi" className="mx-auto h-10 w-10" />
+          <div className="mt-3 flex items-baseline justify-center gap-2">
+            <h1 className="text-3xl font-bold">Bookmi</h1>
+            <span className="text-sm text-muted-foreground">by Qorelly</span>
+          </div>
         </div>
         <div className="card p-8">
           <h2 className="text-2xl font-semibold mb-1">Reset password</h2>
@@ -73,6 +76,6 @@ export default function ForgotPasswordPage() {
           </div>
         </div>
       </div>
-    </AuthLayout>
+    </SplitAuthLayout>
   );
 }

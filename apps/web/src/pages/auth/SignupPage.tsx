@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { AuthLayout } from "@/components/layouts/AuthLayout";
+import { SplitAuthLayout } from "@/components/layouts/SplitAuthLayout";
 import { FormMessage } from "@/components/ui/FormMessage";
 
 export default function SignupPage() {
@@ -51,15 +51,18 @@ export default function SignupPage() {
   };
 
   return (
-    <AuthLayout>
+    <SplitAuthLayout>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold">Bookmi</h1>
-          <p className="text-sm text-muted-foreground mt-1">by Qorelly</p>
+          <img src="/images/logo.svg" alt="Bookmi" className="mx-auto h-10 w-10" />
+          <div className="mt-3 flex items-baseline justify-center gap-2">
+            <h1 className="text-3xl font-bold">Bookmi</h1>
+            <span className="text-sm text-muted-foreground">by Qorelly</span>
+          </div>
         </div>
         <div className="card p-8">
           <div className="mb-6">
-            <h2 className="text-2xl font-semibold mb-1">Create your page</h2>
+            <h2 className="font-display text-3xl mb-1">Create your page</h2>
             <p className="text-sm text-muted-foreground">
               Free forever — we only earn when you do.
             </p>
@@ -119,7 +122,25 @@ export default function SignupPage() {
               {loading ? "Creating your account…" : "Continue with email"}
             </button>
             <p className="text-xs text-muted-foreground text-center">
-              By signing up you agree to Bookmi's Terms &amp; Privacy Policy.
+              By signing up you agree to Bookmi's{" "}
+              <a
+                href="https://qorelly.com/terms-of-service"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Terms
+              </a>{" "}
+              &amp;{" "}
+              <a
+                href="https://qorelly.com/privacy-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Privacy Policy
+              </a>
+              .
             </p>
           </form>
 
@@ -131,6 +152,6 @@ export default function SignupPage() {
           </div>
         </div>
       </div>
-    </AuthLayout>
+    </SplitAuthLayout>
   );
 }
