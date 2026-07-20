@@ -177,11 +177,45 @@ function DailyGrossChartCard({
   buckets: DailyGrossBucket[];
   isPending: boolean;
 }) {
-  const maxKobo = useMemo(
+  const realMaxKobo = useMemo(
     () => buckets.reduce((m, b) => Math.max(m, b.bookingKobo + b.tipKobo), 0),
     [buckets],
   );
-  const totalKobo = buckets.reduce((s, b) => s + b.bookingKobo + b.tipKobo, 0);
+
+  const isMock = realMaxKobo === 0;
+
+  const chartBuckets = useMemo(() => {
+    if (!isMock) return buckets;
+    // Generate 30 days of mock data
+    return Array.from({ length: 30 }, (_, i) => {
+      const dateObj = new Date();
+      dateObj.setDate(dateObj.getDate() - (29 - i));
+      const dateStr = dateObj.toISOString().split("T")[0]!;
+
+      // Make a nice realistic variance
+      const isWeekend = i % 7 === 5 || i % 7 === 6;
+      let bookingKobo = 0;
+      if (isWeekend) {
+        bookingKobo = i % 3 === 0 ? 3600000 : i % 3 === 1 ? 1200000 : 0;
+      } else {
+        bookingKobo = i % 5 === 2 ? 2400000 : i % 5 === 4 ? 1200000 : 0;
+      }
+      const tipKobo = bookingKobo > 0 && i % 4 === 1 ? 500000 : 0;
+
+      return {
+        date: dateStr,
+        bookingKobo,
+        tipKobo,
+      };
+    });
+  }, [buckets, isMock]);
+
+  const maxKobo = useMemo(
+    () => chartBuckets.reduce((m, b) => Math.max(m, b.bookingKobo + b.tipKobo), 0),
+    [chartBuckets],
+  );
+
+  const totalKobo = isMock ? 0 : buckets.reduce((s, b) => s + b.bookingKobo + b.tipKobo, 0);
 
   return (
     <div className="card p-6">
@@ -204,45 +238,57 @@ function DailyGrossChartCard({
 
       {isPending ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
-      ) : maxKobo === 0 ? (
-        <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
-          No earnings in the last 30 days yet.
-        </div>
       ) : (
-        <div className="h-40 flex items-end gap-[3px]" role="img" aria-label="Daily earnings for the last 30 days">
-          {buckets.map((b) => {
-            const total = b.bookingKobo + b.tipKobo;
-            const totalH = maxKobo > 0 ? Math.max(2, (total / maxKobo) * 100) : 0;
-            const bookingRatio = total > 0 ? b.bookingKobo / total : 0;
-            const tipRatio = total > 0 ? b.tipKobo / total : 0;
-            return (
-              <div
-                key={b.date}
-                className="flex-1 flex flex-col justify-end group relative"
-                title={`${formatShortDate(b.date)} · ${formatNaira(total)}`}
-              >
+        <div className="relative">
+          <div
+            className={`h-40 flex items-end gap-[3px] ${
+              isMock ? "opacity-25 grayscale desaturate pointer-events-none select-none" : ""
+            }`}
+            role="img"
+            aria-label="Daily earnings for the last 30 days"
+          >
+            {chartBuckets.map((b) => {
+              const total = b.bookingKobo + b.tipKobo;
+              const totalH = maxKobo > 0 ? Math.max(2, (total / maxKobo) * 100) : 0;
+              const bookingRatio = total > 0 ? b.bookingKobo / total : 0;
+              const tipRatio = total > 0 ? b.tipKobo / total : 0;
+              return (
                 <div
-                  className="w-full flex flex-col overflow-hidden"
-                  style={{ height: `${totalH}%` }}
+                  key={b.date}
+                  className="flex-1 h-full flex flex-col justify-end group relative"
+                  title={`${formatShortDate(b.date)} · ${formatNaira(total)}`}
                 >
                   <div
-                    className="w-full bg-amber-400"
-                    style={{ height: `${tipRatio * 100}%` }}
-                  />
-                  <div
-                    className="w-full bg-primary"
-                    style={{ height: `${bookingRatio * 100}%` }}
-                  />
+                    className="w-full flex flex-col overflow-hidden"
+                    style={{ height: `${totalH}%` }}
+                  >
+                    <div
+                      className="w-full bg-amber-400"
+                      style={{ height: `${tipRatio * 100}%` }}
+                    />
+                    <div
+                      className="w-full bg-primary"
+                      style={{ height: `${bookingRatio * 100}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+
+          {isMock && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span className="bg-white/95 border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm rounded-md">
+                No earnings in the last 30 days yet.
+              </span>
+            </div>
+          )}
         </div>
       )}
-      {!isPending && buckets.length > 0 && (
+      {!isPending && chartBuckets.length > 0 && (
         <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
-          <span>{formatShortDate(buckets[0]!.date)}</span>
-          <span>{formatShortDate(buckets[buckets.length - 1]!.date)}</span>
+          <span>{formatShortDate(chartBuckets[0]!.date)}</span>
+          <span>{formatShortDate(chartBuckets[chartBuckets.length - 1]!.date)}</span>
         </div>
       )}
     </div>
