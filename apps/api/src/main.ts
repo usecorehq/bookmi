@@ -23,13 +23,13 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api");
 
+  // Auth is a Bearer header, never cookies — keep CORS credential-free so
+  // responses stay cacheable and origins stay an explicit allowlist.
+  app.enableCors({
+    origin: config.get<string[]>('corsOrigins') ?? [],
+  });
 
-  const webBaseUrl = config.get<string>("web.baseUrl");
-  const isProd = config.get<string>("nodeEnv") === "production";
-  const corsOrigin = isProd && webBaseUrl ? webBaseUrl : true;
-  app.enableCors({ origin: corsOrigin, credentials: true });
 
-  
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
   // Swagger — always on in dev, harmless in prod behind an ingress rule.
