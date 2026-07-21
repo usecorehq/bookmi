@@ -62,6 +62,16 @@ function MonnifyMark({ className = "" }: { className?: string }) {
   );
 }
 
+/* Inherits the surrounding text style — Tailwind's preflight resets anchor
+   color/decoration, so this reads as plain text but clicks through. */
+function MonnifyLink() {
+  return (
+    <a href="https://monnify.com/" target="_blank" rel="noopener noreferrer">
+      Monnify
+    </a>
+  );
+}
+
 function CheckBadge() {
   return <Icon icon="solar:check-circle-bold" className="h-5 w-5 shrink-0 text-primary" />;
 }
@@ -76,7 +86,7 @@ function Hero() {
               className="anim-fade-up inline-flex items-center gap-1.5 rounded-button bg-primary-light py-1 pl-2 pr-3 text-xs font-medium text-primary"
             >
               <MonnifyMark className="h-4" />
-              Powered by Monnify
+              Powered by <MonnifyLink />
             </span>
             <h1
               className="anim-fade-up mt-5 font-display text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-[1.1]"
@@ -91,8 +101,8 @@ function Hero() {
               style={{ "--anim-delay": "180ms" } as React.CSSProperties}
             >
               Share <span className="font-mono text-foreground">bookmi.co/you</span>. Let anyone book
-              your services and pay in seconds — money lands in your Monnify wallet, withdraw to your
-              bank anytime.
+              your services and pay in seconds — money lands in your <MonnifyLink /> wallet, withdraw
+              to your bank anytime.
             </p>
             <div
               className="anim-fade-up mt-8 flex flex-col gap-3 sm:flex-row"
@@ -411,9 +421,15 @@ function WhoItsFor() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
                   <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-5">
                     <span className="font-display text-2xl text-white">{a.name}</span>
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm transition-colors group-hover:bg-white/35">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
                       <Icon icon="solar:arrow-right-up-linear" className="h-4 w-4 text-white" />
                     </span>
+                  </div>
+                  {/* Hovering any profession turns the tile into the "+ You" card —
+                     the visual pitch that this could be your page. */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#FFDCC1] opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                    <Icon icon="solar:add-circle-linear" className="h-10 w-10 text-foreground" />
+                    <span className="font-display text-3xl text-foreground">You</span>
                   </div>
                 </Link>
               ))}
@@ -678,7 +694,7 @@ function InteractiveBookingMockup() {
           Book & Pay {currentPrice}
         </button>
         <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          <Icon icon="solar:card-bold" className="h-3.5 w-3.5" /> Secure payment via Monnify
+          <Icon icon="solar:card-bold" className="h-3.5 w-3.5" /> Secure payment via <MonnifyLink />
         </div>
       </div>
     </div>
@@ -785,7 +801,7 @@ function InteractiveTippingMockup() {
               Send {getDisplayAmount()} Support
             </button>
             <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-              <Icon icon="solar:card-bold" className="h-3.5 w-3.5" /> Secure payment via Monnify
+              <Icon icon="solar:card-bold" className="h-3.5 w-3.5" /> Secure payment via <MonnifyLink />
             </div>
           </form>
         )}
