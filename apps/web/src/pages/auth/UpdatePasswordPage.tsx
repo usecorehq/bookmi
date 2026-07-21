@@ -54,7 +54,7 @@ export default function UpdatePasswordPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold">Bookmi</h1>
-          <p className="text-sm text-muted-foreground mt-1">by Qorelly</p>
+          <p className="text-sm text-muted-foreground mt-1">by <a href="https://qorelly.com/" target="_blank" rel="noopener noreferrer">Qorelly</a></p>
         </div>
         <div className="card p-8">
           <h2 className="text-2xl font-semibold mb-1">Set a new password</h2>

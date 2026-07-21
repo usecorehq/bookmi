@@ -79,7 +79,7 @@ export function DashboardLayout() {
             </div>
             <div>
               <div className="font-semibold leading-tight">Bookmi</div>
-              <div className="text-xs text-muted-foreground">by Qorelly</div>
+              <div className="text-xs text-muted-foreground">by <a href="https://qorelly.com/" target="_blank" rel="noopener noreferrer">Qorelly</a></div>
             </div>
           </div>
 

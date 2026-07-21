@@ -26,7 +26,7 @@ function Nav() {
         <Link to="/" className="flex items-center gap-2">
           <img src="/images/logo.svg" alt="Bookmi" className="h-8 w-8" />
           <span className="text-lg font-semibold tracking-tight">Bookmi</span>
-          <span className="hidden text-xs text-muted-foreground sm:inline">by Qorelly</span>
+          <span className="hidden text-xs text-muted-foreground sm:inline">by <a href="https://qorelly.com/" target="_blank" rel="noopener noreferrer">Qorelly</a></span>
         </Link>
         <nav className="flex items-center gap-2">
           <Link
@@ -566,7 +566,7 @@ function Footer() {
         <div className="flex items-center gap-2">
           <img src="/images/logo.svg" alt="Bookmi" className="h-7 w-7" />
           <span className="font-semibold">Bookmi</span>
-          <span className="text-xs text-muted-foreground">· by Qorelly</span>
+          <span className="text-xs text-muted-foreground">· by <a href="https://qorelly.com/" target="_blank" rel="noopener noreferrer">Qorelly</a></span>
         </div>
         <div className="flex items-center gap-6 text-sm text-muted-foreground">
           <Link to="/auth/login" className="hover:text-foreground">
@@ -575,7 +575,7 @@ function Footer() {
           <Link to="/auth/signup" className="hover:text-foreground">
             Get started
           </Link>
-          <span>© {new Date().getFullYear()} Qorelly</span>
+          <span>© {new Date().getFullYear()} <a href="https://qorelly.com/" target="_blank" rel="noopener noreferrer">Qorelly</a></span>
         </div>
       </div>
     </footer>

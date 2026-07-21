@@ -42,7 +42,7 @@ export default function ForgotPasswordPage() {
           <img src="/images/logo.svg" alt="Bookmi" className="mx-auto h-10 w-10" />
           <div className="mt-3 flex items-baseline justify-center gap-2">
             <h1 className="text-3xl font-bold">Bookmi</h1>
-            <span className="text-sm text-muted-foreground">by Qorelly</span>
+            <span className="text-sm text-muted-foreground">by <a href="https://qorelly.com/" target="_blank" rel="noopener noreferrer">Qorelly</a></span>
           </div>
         </div>
         <div className="card p-8">
