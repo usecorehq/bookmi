@@ -30,6 +30,7 @@ import {
   type PaymentEnvironment,
 } from "../payment-reference";
 import { canTransition, isTerminal } from "./payment-state";
+import { RefundWebhookService } from "./refund-webhook.service";
 
 export interface InitiateInput {
   purposeType: string;
@@ -68,6 +69,9 @@ export class PaymentsService {
     private readonly registry: PaymentProviderRegistry,
     private readonly purposes: PurposeHandlerRegistry,
     @Optional() private readonly config?: ConfigService,
+    // @Optional() preserves the existing 3-arg constructor call in
+    // payments-flow.int-spec.ts.
+    @Optional() private readonly refundWebhooks?: RefundWebhookService,
   ) {}
 
   /** This deployment's environment — encoded into every reference it mints. */
@@ -294,6 +298,24 @@ export class PaymentsService {
       if (existing?.processedAt) return { handled: false, reason: "duplicate" };
       webhookRow = existing;
       if (!webhookRow) throw err;
+    }
+
+    // Refund-domain events (SUCCESSFUL_REFUND/FAILED_REFUND) never touch a
+    // payment_transactions row — route them to RefundWebhookService instead
+    // of the payment-transaction finalize path below. Only reachable once
+    // MONNIFY_USE_REFUND_API is on (see HostBookingsService.refundBooking);
+    // the default disburse() path never produces a refund-domain webhook.
+    if (parsed.domain === "refund") {
+      if (!this.refundWebhooks) {
+        await this.markWebhookProcessed(
+          webhookRow!.id,
+          "refund webhook received but RefundWebhookService is not wired",
+        );
+        return { handled: false, reason: "refund webhooks not wired" };
+      }
+      const result = await this.refundWebhooks.reconcile(parsed);
+      await this.markWebhookProcessed(webhookRow!.id, result.handled ? null : (result.reason ?? "unhandled"));
+      return result;
     }
 
     if (!parsed.providerReference) {

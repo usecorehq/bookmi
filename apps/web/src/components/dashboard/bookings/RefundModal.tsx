@@ -34,9 +34,15 @@ export function RefundModal({
   const refundMutation = useRefundBooking();
   const requestOtpMutation = useRequestOtp();
 
-  // One idempotency key per modal open. Stable across step navigation +
-  // OTP resends — the server ledger dedupes on it.
-  const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+  // One idempotency key per attempt. Stable across OTP resends within the
+  // same attempt (the server ledger dedupes on it) — but regenerated
+  // whenever the host goes back to "Change details" after a failed confirm,
+  // so a resubmission with corrected details (e.g. a lower amount) can't
+  // collide with the stale key a prior failed attempt already claimed. See
+  // "Change details" below.
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() =>
+    crypto.randomUUID(),
+  );
 
   // Refundable balance = paid amount minus any prior partial refunds.
   const alreadyRefunded = booking.refundedAmountKobo ?? 0;
@@ -190,7 +196,7 @@ export function RefundModal({
       return;
     }
     try {
-      await refundMutation.mutateAsync({
+      const result = await refundMutation.mutateAsync({
         bookingId: booking.id,
         idempotencyKey,
         otpCode,
@@ -202,7 +208,15 @@ export function RefundModal({
           reason: reason.trim() || undefined,
         },
       });
-      toast.success("Refund initiated");
+      // Purely additive: the `disburse`-fallback path always resolves as
+      // "success" synchronously (unchanged today), so this branch is only
+      // ever exercised once the backend's MONNIFY_USE_REFUND_API rollout
+      // flag is on and the provider reports a genuinely in-flight refund.
+      if (result.refund.status === "processing") {
+        toast.success("Refund initiated — funds will reach the customer shortly.");
+      } else {
+        toast.success("Refund sent");
+      }
       onClose();
     } catch (err) {
       setOtpError(readError(err));
@@ -464,6 +478,13 @@ export function RefundModal({
                 onClick={() => {
                   setStep("details");
                   setOtpError(null);
+                  // Fresh key — see the comment where idempotencyKey is
+                  // declared. Otherwise a corrected resubmission (e.g. a
+                  // lower amount after an insufficient-balance failure)
+                  // collides with the previous attempt's claimed key and
+                  // surfaces its stale failure reason instead of actually
+                  // retrying.
+                  setIdempotencyKey(crypto.randomUUID());
                 }}
                 disabled={refundMutation.isPending}
                 className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"

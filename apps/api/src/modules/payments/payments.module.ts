@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { PaymentsController } from "./controllers/payments.controller";
 import { PaymentsWebhookController } from "./controllers/payments-webhook.controller";
 import { PaymentsService } from "./services/payments.service";
+import { RefundWebhookService } from "./services/refund-webhook.service";
 import { PaymentProviderRegistry } from "./providers/payment-provider.registry";
 import { PAYMENT_PROVIDERS } from "./providers/payment-provider.interface";
 import { MonnifyProvider } from "./providers/monnify.provider";
@@ -32,6 +33,11 @@ import { WalletLedgerModule } from "../hosts/wallet-ledger.module";
       inject: [BookingCheckoutHandler],
     },
     PurposeHandlerRegistry,
+
+    // Refund-webhook reconciliation — reconciles SUCCESSFUL_REFUND/
+    // FAILED_REFUND against `refunds` + `wallet_ledger`. Only exercised once
+    // `MONNIFY_USE_REFUND_API` is flipped on (see `HostBookingsService`).
+    RefundWebhookService,
 
     // Orchestrator
     PaymentsService,

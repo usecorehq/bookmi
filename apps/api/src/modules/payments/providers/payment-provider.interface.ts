@@ -55,6 +55,13 @@ export interface PaymentCardDetails {
 export interface VerifyResult {
   status: NormalizedStatus;
   providerReference: string;
+  /**
+   * The provider's OWN internal transaction id (Monnify: `transactionReference`,
+   * distinct from `providerReference` which is bookmi's minted reference that
+   * Monnify merely echoes back). Needed to call the dedicated refund API,
+   * which addresses transactions by Monnify's own reference, not ours.
+   */
+  providerTransactionId?: string;
   amountMinor: number;
   currency: string;
   feeMinor?: number;
@@ -81,6 +88,13 @@ export interface ParsedWebhook {
   providerReference: string;
   status: NormalizedStatus;
   eventName: string;
+  /**
+   * Which domain this event belongs to. Undefined (today's default) means
+   * "payment transaction" — the historically only domain webhooks carried.
+   * `"refund"` routes `PaymentsService.processWebhook` to
+   * `RefundWebhookService` instead of the payment-transaction finalize path.
+   */
+  domain?: "refund";
   amountMinor?: number;
   currency?: string;
   feeMinor?: number;
@@ -90,6 +104,11 @@ export interface ParsedWebhook {
   customerCode?: string;
   card?: PaymentCardDetails;
   failureReason?: string;
+  /**
+   * The provider's own transaction reference — see `VerifyResult.providerTransactionId`
+   * for why this is distinct from `providerReference`.
+   */
+  providerTransactionId?: string;
   raw: unknown;
 }
 
@@ -129,6 +148,37 @@ export interface DisburseResult {
   raw?: unknown;
 }
 
+/**
+ * Input to the dedicated refund API (Monnify: `POST /api/v1/refunds/initiate-refund`).
+ * Distinct from `DisburseInput` — this addresses an *existing* transaction by
+ * the provider's own reference rather than moving money to an arbitrary
+ * destination account from scratch, though it still accepts an optional
+ * destination override (Monnify docs: `destinationAccountNumber` /
+ * `destinationAccountBankCode`) so a refund can still be redirected to a
+ * different bank account, same as the `disburse` path does today.
+ */
+export interface RefundInput {
+  /** Deterministic: `refund_<refundRow.id>` — unchanged from today's disburse reference. */
+  refundReference: string;
+  /** The provider's OWN id for the original transaction — see `VerifyResult.providerTransactionId`. */
+  transactionReference: string;
+  /** Omit for a full refund of the original transaction amount. */
+  amountMinor?: number;
+  /** Provider truncates to 64 chars. */
+  reason: string;
+  /** Provider truncates to 16 chars. */
+  note?: string;
+  destinationBankCode?: string;
+  destinationAccountNumber?: string;
+}
+
+export interface RefundResult {
+  providerReference: string;
+  /** Matches `packages/shared-types` `RefundStatus` exactly. */
+  status: "processing" | "success" | "failed";
+  raw?: unknown;
+}
+
 export interface PaymentProvider {
   readonly code: PaymentProviderCode;
 
@@ -144,10 +194,16 @@ export interface PaymentProvider {
     headers: Record<string, string | string[] | undefined>,
   ): ParsedWebhook;
 
-  refund?(
-    providerReference: string,
-    opts?: { amountMinor?: number; note?: string },
-  ): Promise<void>;
+  refund?(input: RefundInput): Promise<RefundResult>;
+
+  /**
+   * Reserved, unwired — poll a previously-initiated refund's status
+   * (Monnify: `GET /api/v1/refunds/{reference}`). No poller is built this
+   * round; the refund-webhook path (see `RefundWebhookService`) is the only
+   * consumer of refund state today. Kept on the interface so a future
+   * reconciliation job has a stable contract to call into.
+   */
+  getRefundStatus?(refundReference: string): Promise<RefundResult>;
 
   chargeAuthorization?(input: ChargeAuthorizationInput): Promise<VerifyResult>;
 

@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Inject,
   Injectable,
@@ -13,6 +14,7 @@ import {
   bookings,
   hostProfiles,
   hostWallets,
+  paymentTransactions,
   refunds,
   services,
   type Booking,
@@ -309,8 +311,21 @@ export class HostBookingsService {
   ): Promise<{ refund: Refund; booking: Booking | null; cached: boolean }> {
     const host = await this.requireHost(userId);
 
+    // Rollout toggle — see A5 in the refund-API-rewire plan. Default false:
+    // every existing deployment keeps calling `disburse()` exactly as it
+    // does today until this is explicitly flipped on after a sandbox smoke
+    // test. Only flip this on after confirming the two open risks noted on
+    // `MonnifyProvider.refund()`/`parseRefundWebhook` against a real sandbox.
+    const useRefundApi = this.config.get<boolean>("monnify.useRefundApi") ?? false;
+
     const provider = this.providerRegistry.get("monnify");
-    if (!provider.disburse || !provider.resolveBankAccount) {
+    if (useRefundApi) {
+      if (!provider.refund || !provider.resolveBankAccount) {
+        throw new ServiceUnavailableException(
+          "Refunds unavailable — provider misconfigured.",
+        );
+      }
+    } else if (!provider.disburse || !provider.resolveBankAccount) {
       throw new ServiceUnavailableException(
         "Refunds unavailable — provider misconfigured.",
       );
@@ -352,6 +367,21 @@ export class HostBookingsService {
       if (!cached) {
         throw new BadRequestException(
           "Refund state indeterminate — retry with a fresh idempotency key.",
+        );
+      }
+      // An idempotency key dedupes retries of the SAME request — it must
+      // never silently paper over a materially different one (e.g. the host
+      // reduced the amount after a failed attempt and resubmitted under the
+      // same stale key). Without this check, a mismatched request would
+      // surface the ORIGINAL attempt's stale status/failureReason as if it
+      // belonged to the new one — a confusing, actively wrong error.
+      if (
+        cached.amountKobo !== input.amountKobo ||
+        cached.destinationBankCode !== input.bankCode ||
+        cached.destinationAccountNumber !== input.accountNumber
+      ) {
+        throw new BadRequestException(
+          "This idempotency key was already used for a different refund amount or destination — use a fresh idempotency key to submit a new refund.",
         );
       }
       // Also fetch the associated booking so the client can render the
@@ -449,35 +479,110 @@ export class HostBookingsService {
         const reference = `refund_${inserted.id}`;
         const narration = `Refund for booking #${booking.code ?? bookingId.slice(0, 8)}`;
 
-        const result = await provider.disburse!({
-          reference,
-          amountMinor: input.amountKobo,
-          currency: "NGN",
-          destinationBankCode: input.bankCode,
-          destinationAccountNumber: input.accountNumber,
-          destinationAccountName: resolved.accountName,
-          narration,
-        });
-        if (result.status === "failed") {
-          throw new BadRequestException(
-            "Refund disbursement failed — no funds were moved.",
-          );
+        let result: {
+          providerReference: string;
+          status: "pending" | "processing" | "success" | "failed";
+        };
+        // `refunds.status` mirrors shared-types `RefundStatus` exactly
+        // ("processing" | "success" | "failed"); `wallet_ledger.status`
+        // (`LedgerEntryStatus`) has no "processing" value, so its
+        // not-yet-resolved case uses "pending" instead. Both settle for
+        // real once `RefundWebhookService` reconciles the provider's
+        // refund webhook.
+        let refundRowStatus: "success" | "processing";
+        let ledgerEntryStatus: "success" | "pending";
+
+        if (!useRefundApi) {
+          // ─── Default path — byte-for-byte today's behavior, untouched ───
+          result = await provider.disburse!({
+            reference,
+            amountMinor: input.amountKobo,
+            currency: "NGN",
+            destinationBankCode: input.bankCode,
+            destinationAccountNumber: input.accountNumber,
+            destinationAccountName: resolved.accountName,
+            narration,
+          });
+          if (result.status === "failed") {
+            throw new BadRequestException(
+              "Refund disbursement failed — no funds were moved.",
+            );
+          }
+          // MVP note: proper implementation would wait for the webhook to
+          // flip `pending/processing` → `success` before debiting. For now
+          // we treat any non-`failed` provider response as a green light
+          // and debit immediately; the ledger row is exactly what a future
+          // webhook handler updates.
+          refundRowStatus = "success";
+          ledgerEntryStatus = "success";
+        } else {
+          // ─── Opt-in path — MONNIFY_USE_REFUND_API=true only ───
+          if (!booking.paymentTransactionId) {
+            throw new BadRequestException(
+              "This booking has no online payment on file — the provider refund API requires the original transaction. Legacy/dashboard-created bookings without an online payment can't use this path.",
+            );
+          }
+          const [txRow] = await trx
+            .select()
+            .from(paymentTransactions)
+            .where(eq(paymentTransactions.id, booking.paymentTransactionId))
+            .limit(1);
+          if (!txRow) {
+            throw new NotFoundException("Original payment transaction not found.");
+          }
+
+          let providerTransactionId = txRow.providerTransactionId;
+          if (!providerTransactionId) {
+            // JIT backfill — rows written before this column existed (A2)
+            // don't have it yet. One extra network call the first time an
+            // old booking is refunded; persisted so later refunds skip it.
+            if (!txRow.providerReference) {
+              throw new BadRequestException(
+                "Original payment transaction has no provider reference on file — cannot verify with the provider.",
+              );
+            }
+            const verified = await provider.verify(txRow.providerReference);
+            if (!verified.providerTransactionId) {
+              throw new BadGatewayException(
+                "Provider did not return a transaction reference — cannot initiate a refund via the provider API.",
+              );
+            }
+            providerTransactionId = verified.providerTransactionId;
+            await trx
+              .update(paymentTransactions)
+              .set({ providerTransactionId, updatedAt: new Date() })
+              .where(eq(paymentTransactions.id, txRow.id));
+          }
+
+          result = await provider.refund!({
+            refundReference: reference,
+            transactionReference: providerTransactionId,
+            amountMinor: input.amountKobo,
+            reason: input.reason ?? narration,
+            destinationBankCode: input.bankCode,
+            destinationAccountNumber: input.accountNumber,
+          });
+          if (result.status === "failed") {
+            throw new BadRequestException(
+              "Refund disbursement failed — no funds were moved.",
+            );
+          }
+          // Corrected mapping (only active on this path, see comment above
+          // the variable declarations): a genuinely in-flight refund is
+          // recorded as not-yet-settled instead of being falsely marked
+          // `success` immediately like the disburse path always does.
+          refundRowStatus = result.status === "success" ? "success" : "processing";
+          ledgerEntryStatus = result.status === "success" ? "success" : "pending";
         }
 
         const now = new Date();
-        // MVP note: proper implementation would wait for the webhook to
-        // flip `pending/processing` → `success` before debiting. For now
-        // we treat any non-`failed` provider response as a green light
-        // and debit immediately; the ledger row is exactly what a future
-        // webhook handler updates.
         const providerStatus = result.status;
-        const ledgerStatus = "success";
 
         const [refundRow] = await trx
           .update(refunds)
           .set({
             monnifyReference: result.providerReference,
-            status: ledgerStatus,
+            status: refundRowStatus,
             updatedAt: now,
           })
           .where(eq(refunds.id, inserted.id))
@@ -486,6 +591,13 @@ export class HostBookingsService {
           throw new NotFoundException("Refund row disappeared mid-update.");
         }
 
+        // Booking cancellation stays unconditional on initiate
+        // success/processing, same as today, on both paths. If a later
+        // FAILED_REFUND webhook arrives after this, RefundWebhookService
+        // restores the wallet balance via a compensating credit but does
+        // NOT auto-revert this cancellation — the host may have already
+        // acted on it. The refund shows `failed` in the dashboard for
+        // manual follow-up instead.
         const [updatedBooking] = await trx
           .update(bookings)
           .set({
@@ -511,6 +623,7 @@ export class HostBookingsService {
           sourceType: "refund",
           sourceMode: "refund",
           sourceId: refundRow.id,
+          status: ledgerEntryStatus,
           memo: `Refund for booking #${booking.code ?? bookingId.slice(0, 8)}`,
         });
 

@@ -206,6 +206,7 @@ describe("MonnifyProvider", () => {
       expect(result.card?.last4).toBe("4408");
       expect(result.card?.reusable).toBe(true);
       expect(result.paidAt?.toISOString()).toBe("2026-07-10T09:00:00.000Z");
+      expect(result.providerTransactionId).toBe("MNFY|20|MER|abc");
 
       const [verifyUrl] = fetchMock.mock.calls[1] as [string];
       expect(verifyUrl).toBe(
@@ -404,6 +405,172 @@ describe("MonnifyProvider", () => {
       expect(() => provider.parseWebhook(Buffer.from("not-json"), {})).toThrow(
         "Malformed webhook body",
       );
+    });
+
+    it("routes SUCCESSFUL_REFUND/FAILED_REFUND to domain: refund with success/failed status", () => {
+      const provider = new MonnifyProvider(fakeConfig());
+
+      const success = provider.parseWebhook(
+        Buffer.from(
+          JSON.stringify({
+            eventType: "SUCCESSFUL_REFUND",
+            eventData: {
+              refundReference: "refund_abc-123",
+              transactionReference: "MNFY|1",
+              refundStatus: "COMPLETED",
+            },
+          }),
+        ),
+        {},
+      );
+      expect(success.domain).toBe("refund");
+      expect(success.providerReference).toBe("refund_abc-123");
+      expect(success.status).toBe("success");
+      expect(success.providerEventId).toBe("monnify:SUCCESSFUL_REFUND:refund_abc-123");
+      expect(success.failureReason).toBeUndefined();
+
+      const failed = provider.parseWebhook(
+        Buffer.from(
+          JSON.stringify({
+            eventType: "FAILED_REFUND",
+            eventData: {
+              refundReference: "refund_abc-124",
+              refundReason: "Insufficient balance",
+            },
+          }),
+        ),
+        {},
+      );
+      expect(failed.domain).toBe("refund");
+      expect(failed.status).toBe("failed");
+      expect(failed.failureReason).toBe("Insufficient balance");
+    });
+
+    it("falls back to a body hash for a refund webhook with no refundReference", () => {
+      const provider = new MonnifyProvider(fakeConfig());
+      const raw = Buffer.from(
+        JSON.stringify({ eventType: "SUCCESSFUL_REFUND", eventData: {} }),
+      );
+      const parsed = provider.parseWebhook(raw, {});
+      expect(parsed.providerEventId).toMatch(/^monnify:SUCCESSFUL_REFUND:sha256:[0-9a-f]{64}$/);
+    });
+  });
+
+  describe("refund", () => {
+    it("posts to initiate-refund with truncated reason/note and maps COMPLETED to success", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          requestSuccessful: true,
+          responseBody: {
+            refundReference: "refund_abc-123",
+            transactionReference: "MNFY|1",
+            refundStatus: "COMPLETED",
+          },
+        }),
+      });
+
+      const provider = new MonnifyProvider(fakeConfig());
+      const longReason = "x".repeat(100);
+      const longNote = "y".repeat(30);
+      const result = await provider.refund({
+        refundReference: "refund_abc-123",
+        transactionReference: "MNFY|1",
+        amountMinor: 250_000,
+        reason: longReason,
+        note: longNote,
+        destinationBankCode: "044",
+        destinationAccountNumber: "0123456789",
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.providerReference).toBe("refund_abc-123");
+
+      const [refundUrl, refundInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(refundUrl).toBe("https://monnify.test/api/v1/refunds/initiate-refund");
+      const body = JSON.parse(refundInit.body as string) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        transactionReference: "MNFY|1",
+        refundReference: "refund_abc-123",
+        refundAmount: 2500,
+        destinationAccountNumber: "0123456789",
+        destinationAccountBankCode: "044",
+      });
+      expect((body.refundReason as string).length).toBe(64);
+      expect(body.refundReason).toBe(longReason.slice(0, 64));
+      expect((body.customerNote as string).length).toBe(16);
+      expect(body.customerNote).toBe(longNote.slice(0, 16));
+    });
+
+    it("maps IN_PROGRESS to processing and anything else to failed", async () => {
+      for (const [refundStatus, expected] of [
+        ["IN_PROGRESS", "processing"],
+        ["REJECTED", "failed"],
+        [undefined, "failed"],
+      ] as const) {
+        fetchMock.mockReset();
+        mockAuthLogin(fetchMock);
+        fetchMock.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            requestSuccessful: true,
+            responseBody: { refundReference: "refund_x", refundStatus },
+          }),
+        });
+        const provider = new MonnifyProvider(fakeConfig());
+        const result = await provider.refund({
+          refundReference: "refund_x",
+          transactionReference: "MNFY|1",
+          reason: "Customer requested",
+        });
+        expect(result.status).toBe(expected);
+      }
+    });
+
+    it("omits refundAmount for a full refund (amountMinor not provided)", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          requestSuccessful: true,
+          responseBody: { refundReference: "refund_full", refundStatus: "COMPLETED" },
+        }),
+      });
+      const provider = new MonnifyProvider(fakeConfig());
+      await provider.refund({
+        refundReference: "refund_full",
+        transactionReference: "MNFY|1",
+        reason: "Full refund",
+      });
+      const [, refundInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+      const body = JSON.parse(refundInit.body as string) as Record<string, unknown>;
+      expect(body.refundAmount).toBeUndefined();
+      expect(body.destinationAccountNumber).toBeUndefined();
+      expect(body.destinationAccountBankCode).toBeUndefined();
+    });
+
+    it("surfaces a Monnify error when the request is unsuccessful", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          requestSuccessful: false,
+          responseMessage: "Transaction reference invalid",
+        }),
+      });
+      const provider = new MonnifyProvider(fakeConfig());
+      await expect(
+        provider.refund({
+          refundReference: "refund_bad",
+          transactionReference: "bad-ref",
+          reason: "test",
+        }),
+      ).rejects.toThrow("Transaction reference invalid");
     });
   });
 });
