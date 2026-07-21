@@ -6,8 +6,8 @@
  */
 
 export type LedgerEntryType = "credit" | "debit";
-export type LedgerSourceType = "payment_transaction" | "payout" | "refund";
-export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund";
+export type LedgerSourceType = "payment_transaction" | "payout" | "refund" | "reserved_account";
+export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund" | "wallet_topup";
 export type LedgerEntryStatus = "pending" | "success" | "failed" | "cancelled";
 
 export interface WalletLedgerEntry {

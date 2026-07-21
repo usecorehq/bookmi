@@ -113,6 +113,12 @@ export interface ParsedWebhook {
   paidAt?: Date;
   authorizationCode?: string;
   customerCode?: string;
+  /**
+   * Best-effort sender/payer display name for a `reserved_account_credit`
+   * webhook (Monnify's `eventData.customer?.name`). Undefined for every
+   * other webhook domain.
+   */
+  payerName?: string;
   card?: PaymentCardDetails;
   failureReason?: string;
   /**

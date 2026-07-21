@@ -14,6 +14,7 @@ import {
   hostProfiles,
   hostWallets,
   payouts,
+  reservedBankAccounts,
   type HostWallet,
   type Payout,
 } from "../../../drizzle/schema";
@@ -35,6 +36,29 @@ export interface WalletView {
     createdAt: Date;
   }>;
   recentPayouts: Payout[];
+}
+
+/**
+ * What both the real and mock reserved-account paths produce: `patch` is
+ * cached onto `host_wallets` (the "active" account's display fields);
+ * `accounts` is the full bank list to persist into `reserved_bank_accounts`
+ * — one row per entry, index 0 marked active.
+ */
+interface ReservedAccountActivation {
+  patch: {
+    bvn: string;
+    reservedAccountNumber: string;
+    reservedBankName: string;
+    reservedAccountName: string;
+    monnifyWalletReference: string;
+    updatedAt: Date;
+  };
+  accounts: Array<{
+    bankCode: string;
+    bankName: string;
+    accountNumber: string;
+    accountName?: string;
+  }>;
 }
 
 const BANKS_TTL_MS = 24 * 60 * 60 * 1000;
@@ -411,6 +435,13 @@ export class HostWalletService {
    *    credentials. Nothing ever lands in a mock account, so no webhook
    *    reconciliation applies to it.
    *
+   * Monnify can provision several partner banks under one reserved-account
+   * reference (`getAllAvailableBanks: true`, the default when
+   * `MONNIFY_RESERVED_ACCOUNT_BANK_CODE` is unset) — every one is persisted
+   * to `reserved_bank_accounts`, with the first marked active. `host_wallets`
+   * only ever caches that active row's display fields; switching which bank
+   * is active has no API today (no admin auth surface exists yet).
+   *
    * Idempotent: if the host already has a reserved account, it's returned
    * as-is rather than re-provisioning (and the BVN is not overwritten).
    *
@@ -434,16 +465,41 @@ export class HostWalletService {
       return existing;
     }
 
-    const useRealApi = this.config.get<boolean>("monnify.useReservedAccountApi") ?? false;
-    const patch = useRealApi
-      ? await this.reserveRealAccount(host.id, bvn, email)
-      : mockReservedAccountPatch(bvn);
+    const [profile] = await this.db
+      .select({ displayName: hostProfiles.displayName })
+      .from(hostProfiles)
+      .where(eq(hostProfiles.id, host.id))
+      .limit(1);
+    const accountName = profile?.displayName ?? "Bookmi Host";
 
-    const [row] = await this.db
-      .insert(hostWallets)
-      .values({ hostId: host.id, ...patch })
-      .onConflictDoUpdate({ target: hostWallets.hostId, set: patch })
-      .returning();
+    const useRealApi = this.config.get<boolean>("monnify.useReservedAccountApi") ?? false;
+    const { patch, accounts } = useRealApi
+      ? await this.reserveRealAccount(host.id, bvn, email, accountName)
+      : mockReservedAccountPatch(bvn, accountName);
+
+    // Both the bank-list snapshot and the host_wallets cache commit together
+    // — a failure partway through must not leave one without the other.
+    const row = await this.db.transaction(async (trx) => {
+      if (accounts.length) {
+        await trx.insert(reservedBankAccounts).values(
+          accounts.map((a, i) => ({
+            hostId: host.id,
+            bankCode: a.bankCode,
+            bankName: a.bankName,
+            accountNumber: a.accountNumber,
+            accountName: a.accountName ?? null,
+            isActive: i === 0,
+          })),
+        );
+      }
+
+      const [inserted] = await trx
+        .insert(hostWallets)
+        .values({ hostId: host.id, ...patch })
+        .onConflictDoUpdate({ target: hostWallets.hostId, set: patch })
+        .returning();
+      return inserted;
+    });
 
     // Never log the raw BVN.
     this.logger.log(
@@ -463,13 +519,8 @@ export class HostWalletService {
     hostId: string,
     bvn: string,
     email: string | undefined,
-  ): Promise<{
-    bvn: string;
-    reservedAccountNumber: string;
-    reservedBankName: string;
-    monnifyWalletReference: string;
-    updatedAt: Date;
-  }> {
+    accountName: string,
+  ): Promise<ReservedAccountActivation> {
     if (!email) {
       throw new BadRequestException(
         "An email address is required to activate a reserved account.",
@@ -483,12 +534,6 @@ export class HostWalletService {
       );
     }
 
-    const [profile] = await this.db
-      .select({ displayName: hostProfiles.displayName })
-      .from(hostProfiles)
-      .where(eq(hostProfiles.id, hostId))
-      .limit(1);
-    const accountName = profile?.displayName ?? "Bookmi Host";
     const preferredBankCode = this.config.get<string>("monnify.reservedAccountBankCode");
 
     // accountReference = hostId — deterministic, unique, and lets
@@ -503,17 +548,24 @@ export class HostWalletService {
       ...(preferredBankCode ? { preferredBankCodes: [preferredBankCode] } : {}),
     });
 
-    const primary = result.accounts[0];
-    if (!primary) {
+    if (!result.accounts.length) {
       throw new ServiceUnavailableException("Monnify returned no reserved account details.");
     }
 
+    // Keep every bank Monnify provisioned (getAllAvailableBanks can return
+    // several) — the first becomes "active" (what host_wallets caches / the
+    // host sees); the rest are kept for a future admin-driven switch.
+    const primary = result.accounts[0]!;
     return {
-      bvn,
-      reservedAccountNumber: primary.accountNumber,
-      reservedBankName: primary.bankName,
-      monnifyWalletReference: result.accountReference,
-      updatedAt: new Date(),
+      patch: {
+        bvn,
+        reservedAccountNumber: primary.accountNumber,
+        reservedBankName: primary.bankName,
+        reservedAccountName: primary.accountName ?? result.accountName ?? accountName,
+        monnifyWalletReference: result.accountReference,
+        updatedAt: new Date(),
+      },
+      accounts: result.accounts,
     };
   }
 
@@ -569,18 +621,27 @@ export class HostWalletService {
  * in this account; it exists only so the product flow demos end-to-end
  * without live Monnify credentials.
  */
-function mockReservedAccountPatch(bvn: string): {
-  bvn: string;
-  reservedAccountNumber: string;
-  reservedBankName: string;
-  monnifyWalletReference: string;
-  updatedAt: Date;
-} {
+function mockReservedAccountPatch(bvn: string, accountName: string): ReservedAccountActivation {
+  const mockAccountNumber = String(1_000_000_000 + Math.floor(Math.random() * 9_000_000_000));
+  const mockBankName = "Moniepoint MFB"; // Monnify's documented default reserved-account partner bank.
+  const mockBankCode = "50515"; // Moniepoint's real CBN bank code — kept plausible, matching the rest of the mock.
+
   return {
-    bvn,
-    reservedAccountNumber: String(1_000_000_000 + Math.floor(Math.random() * 9_000_000_000)),
-    reservedBankName: "Moniepoint MFB", // Monnify's documented default reserved-account partner bank.
-    monnifyWalletReference: `mock_reserved_${crypto.randomUUID()}`,
-    updatedAt: new Date(),
+    patch: {
+      bvn,
+      reservedAccountNumber: mockAccountNumber,
+      reservedBankName: mockBankName,
+      reservedAccountName: accountName,
+      monnifyWalletReference: `mock_reserved_${crypto.randomUUID()}`,
+      updatedAt: new Date(),
+    },
+    accounts: [
+      {
+        bankCode: mockBankCode,
+        bankName: mockBankName,
+        accountNumber: mockAccountNumber,
+        accountName,
+      },
+    ],
   };
 }

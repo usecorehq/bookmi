@@ -1,5 +1,7 @@
 # Payouts and refunds
 
+> Diagram: [payout/refund sequence](../diagrams/images/payout-flow.svg)
+
 [Payments](payments.md) covers money coming **in** — checkout, verify, webhooks. This doc covers money moving **out of** a host's wallet (withdrawals) and **back to** a customer (refunds).
 
 ## The accounting tables
@@ -107,17 +109,17 @@ See [Monnify API usage](../guides/monnify-apis-usage.md) for the endpoint shape.
 Branches on `config.get("monnify.useReservedAccountApi")` (env `MONNIFY_USE_RESERVED_ACCOUNT_API`, **default `false`**):
 
 - **Flag off (default):** fabricates a plausible 10-digit account number + `"Moniepoint MFB"` as the bank name, so the product flow (pending-activation card → BVN form → dedicated account number) still demos end-to-end without live Monnify credentials. Nothing ever lands in a mock account — no webhook reconciliation applies.
-- **Flag on (opt-in, after a sandbox smoke test):** calls `provider.reserveAccount()` — Monnify's `POST /api/v2/bank-transfer/reserved-accounts` (request/response shape confirmed against [Monnify's docs](https://developers.monnify.com/docs/collections/recurring-payments/reserved-accounts), not inferred) — with `accountReference: host.id`. That reference is also the correlator the reserved-account-credit webhook uses to map a transfer back to a host, with no side-table lookup; whether a *retried* call with the same reference upserts rather than errors isn't covered by the docs and is still worth a sandbox smoke test. Requires the host's email (from the authenticated JWT) — the request fails with a clear error if it's missing. An optional `MONNIFY_RESERVED_ACCOUNT_BANK_CODE` restricts provisioning to one partner bank; unset requests every bank Monnify supports and surfaces the first one returned.
+- **Flag on (opt-in, after a sandbox smoke test):** calls `provider.reserveAccount()` — Monnify's `POST /api/v2/bank-transfer/reserved-accounts` (request/response shape confirmed against [Monnify's docs](https://developers.monnify.com/docs/collections/recurring-payments/reserved-accounts), not inferred) — with `accountReference: host.id`. That reference is also the correlator the reserved-account-credit webhook uses to map a transfer back to a host, with no side-table lookup; whether a *retried* call with the same reference upserts rather than errors isn't covered by the docs and is still worth a sandbox smoke test. Requires the host's email (from the authenticated JWT) — the request fails with a clear error if it's missing. An optional `MONNIFY_RESERVED_ACCOUNT_BANK_CODE` restricts provisioning to one partner bank; unset requests every bank Monnify supports (`getAllAvailableBanks: true`) and Monnify can return several.
 
-Either way, the result populates `host_wallets.reserved_account_number` / `reserved_bank_name` / `monnify_wallet_reference`.
+**Multiple partner banks.** Every bank Monnify returns is persisted to `reserved_bank_accounts` (one row per bank, `host_id` + `account_number` unique), with the first one marked `is_active` — a partial unique index (`rba_host_active_uniq`, `WHERE is_active = true`) enforces at most one active row per host at the DB level. `host_wallets.reserved_account_number` / `reserved_bank_name` / `reserved_account_name` are a **denormalized cache** of whichever row is active — the same pattern as `balance_kobo` caching the ledger tip — and are what the wallet page shows; the host never sees the full list. Switching which bank is active has **no API today**: this repo has no admin auth/RBAC surface at all (the only "admin" thing that exists is the Bull Board queue dashboard, gated by plain env-var Basic Auth, not a real role system), so it's a manual DB update until real admin tooling exists.
 
 ### Reserved-account-webhook reconciliation
 
-`ReservedAccountWebhookService` (`apps/api/src/modules/payments/services/reserved-account-webhook.service.ts`) reconciles Monnify's `RESERVED_ACCOUNT_TRANSACTION` webhook — fired when a transfer lands in a host's reserved account. Unlike a normal payment or refund, this event has no matching `payment_transactions`/`refunds` row, so `PaymentsService.processWebhook()` routes it (via `parsedWebhook.domain === "reserved_account_credit"`) straight to a ledger credit instead of the finalize path:
+`ReservedAccountWebhookService` (`apps/api/src/modules/payments/services/reserved-account-webhook.service.ts`) reconciles Monnify's `RESERVED_ACCOUNT_TRANSACTION` webhook — fired when a transfer lands in a host's reserved account. Unlike a normal payment or refund, this event has no matching `payment_transactions`/`refunds` row, so `PaymentsService.processWebhook()` routes it (via `parsedWebhook.domain === "reserved_account_credit"`) to `wallet_topups` + a ledger credit instead of the finalize path:
 
-1. Skip (no-op, `handled: true`) unless the webhook's normalized status is `success` — a failed/reversed reserved-account event never moved money.
-2. Resolve the host from `parsed.accountReference` (= `host_wallets.host_id`, minted at activation time). No match → `handled: false`.
-3. `WalletLedgerService.appendEntry()` — a `credit` entry, `sourceType: "reserved_account"`, `sourceMode: "wallet_funding"`, `sourceId: null` (no domain row backs this event — the provider's transaction reference is recorded in the entry's `memo` instead).
+1. Resolve the host from `parsed.accountReference` (= `host_wallets.host_id`, minted at activation time). No match → `handled: false`.
+2. **Failed status:** insert a `wallet_topups` row (`status: "failed"`, `failure_reason`) for parity/audit with `payouts`/`refunds` — no money moved, so no ledger entry.
+3. **Success status:** inside one transaction, insert a `wallet_topups` row (`provider_reference` = Monnify's `transactionReference`, deduped per-host via a partial unique index — a second line of defense beyond the upstream `payment_webhook_events` dedup) then `WalletLedgerService.appendEntry()` — a `credit` entry, `sourceType: "reserved_account"`, `sourceMode: "wallet_topup"`, `sourceId: <wallet_topups row id>`. Unlike the original version of this reconciler, `sourceId` is no longer `null` — there's a real, queryable row behind every credit. A redelivered webhook (same `provider_reference`) hits the unique-index conflict, so the ledger append is skipped rather than double-counted.
 
 Only reachable once a host has a *real* reserved account (`MONNIFY_USE_RESERVED_ACCOUNT_API=true`) — mocked reserved accounts never receive an actual transfer, so no webhook ever arrives for them.
 
@@ -127,7 +129,7 @@ The exact `RESERVED_ACCOUNT_TRANSACTION` webhook field names (particularly `prod
 
 | File | What it holds |
 |---|---|
-| `apps/api/src/drizzle/schema.ts` | `host_wallets`, `payouts`, `refunds`, `wallet_ledger`, `security_challenges` table definitions; `payment_transactions.provider_transaction_id` |
+| `apps/api/src/drizzle/schema.ts` | `host_wallets`, `payouts`, `refunds`, `reserved_bank_accounts`, `wallet_topups`, `wallet_ledger`, `security_challenges` table definitions; `payment_transactions.provider_transaction_id` |
 | `apps/api/src/drizzle/migrations/0005_moneyout_idempotency_otp.sql` | Idempotency keys on `payouts`/`refunds` + `security_challenges` |
 | `apps/api/src/drizzle/migrations/0006_wallet_ledger.sql` | The `wallet_ledger` table |
 | `apps/api/src/drizzle/migrations/0007_payment_transaction_provider_id.sql` | `payment_transactions.provider_transaction_id` — Monnify's own transaction reference, captured so the dedicated refund API can address the original transaction |
@@ -140,7 +142,7 @@ The exact `RESERVED_ACCOUNT_TRANSACTION` webhook field names (particularly `prod
 | `apps/api/src/modules/security/security.controller.ts` | `POST hosts/me/security/otp/challenge` |
 | `apps/api/src/modules/payments/providers/payment-provider.interface.ts` | `disburse`, `refund`, `reserveAccount`, `listBanks`, `resolveBankAccount` — the disbursement half of the provider contract |
 | `apps/api/src/modules/payments/services/refund-webhook.service.ts` | `RefundWebhookService.reconcile()` — `SUCCESSFUL_REFUND`/`FAILED_REFUND` reconciliation |
-| `apps/api/src/modules/payments/services/reserved-account-webhook.service.ts` | `ReservedAccountWebhookService.reconcile()` — `RESERVED_ACCOUNT_TRANSACTION` reconciliation into `wallet_ledger` |
+| `apps/api/src/modules/payments/services/reserved-account-webhook.service.ts` | `ReservedAccountWebhookService.reconcile()` — `RESERVED_ACCOUNT_TRANSACTION` reconciliation into `wallet_topups` + `wallet_ledger` |
 | `apps/api/src/config/configuration.ts` | `monnify.useRefundApi` / `monnify.useReservedAccountApi` — the rollout flags |
 | `packages/shared-types/src/payment.ts` | `Payout`, `PayoutStatus` types |
 | `packages/shared-types/src/wallet-ledger.ts` | Ledger entry types shared with the frontend |
