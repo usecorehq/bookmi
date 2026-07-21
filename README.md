@@ -8,14 +8,9 @@
 - **Customers** open the slug, pick services + a time, pay through the Monnify popup.
 - **Bookmi** pockets a small platform fee; the rest credits the host's Monnify-backed wallet, ready to withdraw to any Nigerian bank account.
 
-<table>
-<tr>
-<td align="center"><img src="docs/diagrams/images/c4-context.svg" alt="Bookmi C4 system context diagram" width="450"><br/><b>A</b> — C4 Context: Bookmi's place between hosts, customers, and external systems (Supabase Auth, Monnify, SMTP, Cloudinary)</td>
-<td align="center"><img src="docs/diagrams/images/c4-container.svg" alt="Bookmi C4 container diagram" width="450"><br/><b>B</b> — C4 Container: the Web SPA, API, Postgres, and Redis/BullMQ, and how they talk to each other and to those external systems</td>
-</tr>
-</table>
+<img src="docs/screenshots/hero.jpeg" alt="Bookmi Hero Screenshot" width="800">
 
-More architecture illustrations (payment lifecycle, booking/payout flows, system flowchart, user journeys) in **[Architecture diagrams](docs/diagrams/README.md)**.
+<img src="docs/screenshots/bookings.jpeg" alt="Bookmi Hero Screenshot" width="800">
 
 ---
 
@@ -103,6 +98,15 @@ pnpm-workspace.yaml   Workspace packages.
 ## Documentation
 
 Everything worth understanding lives under [`docs/`](docs/README.md). The critical reads:
+
+<table>
+<tr>
+<td align="center"><img src="docs/diagrams/images/c4-context.svg" alt="Bookmi C4 system context diagram" width="450"><br/><b>A</b> — C4 Context: Bookmi's place between hosts, customers, and external systems (Supabase Auth, Monnify, SMTP, Cloudinary)</td>
+<td align="center"><img src="docs/diagrams/images/c4-container.svg" alt="Bookmi C4 container diagram" width="450"><br/><b>B</b> — C4 Container: the Web SPA, API, Postgres, and Redis/BullMQ, and how they talk to each other and to those external systems</td>
+</tr>
+</table>
+
+More architecture illustrations (payment lifecycle, booking/payout flows, system flowchart, user journeys) in **[Architecture diagrams](docs/diagrams/README.md)**.
 
 ### Architecture — why we built it this way
 
