@@ -1,0 +1,11 @@
+{
+  "framework": "VITE",
+  "packageManager": "npm",
+  "installCommand": "cd \"apps/web\" && npm install",
+  "runCommand": "cd \"apps/web\" && npm run dev -- --port 5173",
+  "devServerPort": 5173,
+  "vite": {
+    "indexHtmlPath": "apps/web/index.html"
+  },
+  "projectSubpath": "apps/web"
+}
