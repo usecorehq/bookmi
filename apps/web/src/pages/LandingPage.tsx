@@ -1,17 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  ArrowRight,
-  Calendar,
-  Check,
-  ChevronDown,
-  CreditCard,
-  Heart,
-  Link2,
-  Sparkles,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { Icon } from "@iconify/react";
 
 export function LandingPage() {
   return (
@@ -49,7 +38,7 @@ function Nav() {
             to="/auth/signup"
             className="inline-flex items-center gap-1.5 rounded-button bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover active:scale-95 transition-all"
           >
-            Get started <ArrowRight className="h-4 w-4" />
+            Get started <Icon icon="solar:arrow-right-bold" className="h-4 w-4" />
           </Link>
         </nav>
       </div>
@@ -57,17 +46,40 @@ function Nav() {
   );
 }
 
+/* The Monnify asset is the full lockup (mark + white wordmark, 612×100).
+   Crop to the mark — the first ~150px — since the white wordmark is invisible
+   on light backgrounds. */
+function MonnifyMark({ className = "" }: { className?: string }) {
+  return (
+    <span className={`relative inline-block aspect-[3/2] overflow-hidden ${className}`}>
+      <img
+        src="/images/landing/monnify.png"
+        alt="Monnify"
+        className="absolute left-0 top-0 h-full w-auto max-w-none"
+      />
+    </span>
+  );
+}
+
+function CheckBadge() {
+  return (
+    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary">
+      <Icon icon="solar:check-read-linear" className="h-3.5 w-3.5 text-white" />
+    </span>
+  );
+}
+
 function Hero() {
   return (
-    <section className="relative overflow-hidden border-b border-gray-200">
-      <div className="absolute inset-0 bg-gradient-to-b from-primary-light/70 to-white" aria-hidden />
-      <div className="container relative py-20 sm:py-28">
+    <section className="overflow-hidden border-b border-gray-200 bg-white">
+      <div className="container py-14 sm:py-16">
         <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-button bg-primary-light px-3 py-1 text-xs font-medium text-primary">
-              <Sparkles className="h-3.5 w-3.5" /> By Qorelly · Powered by Monnify
+            <span className="inline-flex items-center gap-1.5 rounded-button bg-primary-light py-1 pl-2 pr-3 text-xs font-medium text-primary">
+              <MonnifyMark className="h-4" />
+              Powered by Monnify
             </span>
-            <h1 className="mt-5 font-display text-5xl sm:text-6xl lg:text-7xl tracking-tight leading-[1.05]">
+            <h1 className="mt-5 font-display text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-[1.1]">
               Your bookable page,
               <br />
               <span className="text-primary">in one link.</span>
@@ -79,21 +91,21 @@ function Hero() {
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link to="/auth/signup" className="btn-primary text-base">
-                Get your link <ArrowRight className="h-4 w-4" />
+                Get your link <Icon icon="solar:arrow-right-bold" className="h-4 w-4" />
               </Link>
               <a href="#how-it-works" className="btn-secondary text-base">
                 See how it works
               </a>
             </div>
             <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-              <li className="inline-flex items-center gap-1.5">
-                <Check className="h-4 w-4 text-primary" /> No setup fee
+              <li className="inline-flex items-center gap-2">
+                <CheckBadge /> No setup fee
               </li>
-              <li className="inline-flex items-center gap-1.5">
-                <Check className="h-4 w-4 text-primary" /> Pay out to any Nigerian bank
+              <li className="inline-flex items-center gap-2">
+                <CheckBadge /> Pay out to any Nigerian bank
               </li>
-              <li className="inline-flex items-center gap-1.5">
-                <Check className="h-4 w-4 text-primary" /> Live in 5 minutes
+              <li className="inline-flex items-center gap-2">
+                <CheckBadge /> Live in 5 minutes
               </li>
             </ul>
           </div>
@@ -104,51 +116,101 @@ function Hero() {
   );
 }
 
-function HeroPreview() {
-  const services = [
-    { name: "30-min consultation", duration: "30 min", price: "₦15,000" },
-    { name: "Portfolio review", duration: "45 min", price: "₦25,000" },
-    { name: "1:1 mentoring session", duration: "60 min", price: "₦40,000" },
-  ];
+function HeroNotification({
+  variant,
+  avatar,
+  name,
+  detail,
+  amount,
+  meta,
+}: {
+  variant: "booking" | "tip";
+  avatar?: string;
+  name: string;
+  detail: string;
+  amount: string;
+  meta: string;
+}) {
+  const isTip = variant === "tip";
   return (
-    <div className="relative">
-      <div className="card-elevated overflow-hidden p-0">
-        <div className="flex items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-3">
-          <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-          <span className="ml-2 flex-1 rounded-button border border-gray-200 bg-white px-3 py-1 font-mono text-xs text-muted-foreground">
-            bookmi.co/adaeze
+    <div
+      className={`flex shrink-0 items-center gap-5 rounded-[20px] px-4 py-3 ${
+        isTip ? "bg-[#D95656] text-white" : "bg-white text-foreground"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        {isTip ? (
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-light">
+            <Icon icon="solar:heart-bold" className="h-6 w-6 text-primary" />
           </span>
+        ) : (
+          <img src={avatar} alt="" className="h-12 w-12 rounded-full object-cover" />
+        )}
+        <div>
+          <div className="font-display text-base leading-6 whitespace-nowrap">{name}</div>
+          <div className={`text-xs whitespace-nowrap ${isTip ? "text-white/80" : "text-muted-foreground"}`}>
+            {detail}
+          </div>
         </div>
-        <div className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-light text-lg font-semibold text-primary">
-              A
+      </div>
+      <div className="text-right">
+        <div className="font-display text-sm whitespace-nowrap">{amount}</div>
+        <div className={`text-xs ${isTip ? "text-white/80" : "text-muted-foreground"}`}>{meta}</div>
+      </div>
+    </div>
+  );
+}
+
+const heroNotifications = [
+  {
+    variant: "booking",
+    avatar: "/images/landing/avatar-1.png",
+    name: "Adaeze O.",
+    detail: "Brand strategist · Lagos",
+    amount: "₦15,000",
+    meta: "30 min",
+  },
+  {
+    variant: "tip",
+    name: "Samuel A.",
+    detail: "Product designer · Abuja",
+    amount: "+₦10,000",
+    meta: "Tip",
+  },
+  {
+    variant: "booking",
+    avatar: "/images/landing/avatar-2.png",
+    name: "Samuel A.",
+    detail: "Fitness coach · Lagos",
+    amount: "₦25,000",
+    meta: "45 min",
+  },
+  {
+    variant: "tip",
+    name: "Chiamaka N.",
+    detail: "Makeup artist · Enugu",
+    amount: "+₦5,000",
+    meta: "Tip",
+  },
+] as const;
+
+function HeroPreview() {
+  return (
+    <div className="relative overflow-hidden border border-gray-200 bg-white p-px">
+      <img
+        src="/images/landing/hero-photo.jpg"
+        alt="Creator taking a selfie"
+        className="h-[420px] w-full object-cover sm:h-[560px] lg:h-[640px]"
+      />
+      <div className="absolute inset-x-0 bottom-5 overflow-hidden">
+        <div className="animate-marquee flex w-max">
+          {[0, 1].map((half) => (
+            <div key={half} className="flex gap-2.5 pr-2.5" aria-hidden={half === 1}>
+              {heroNotifications.map((n, i) => (
+                <HeroNotification key={i} {...n} />
+              ))}
             </div>
-            <div>
-              <div className="font-semibold">Adaeze O.</div>
-              <div className="text-xs text-muted-foreground">Brand strategist · Lagos</div>
-            </div>
-          </div>
-          <div className="mt-5 space-y-2.5">
-            {services.map((s) => (
-              <div
-                key={s.name}
-                className="flex items-center justify-between rounded-button border border-gray-200 px-4 py-3"
-              >
-                <div>
-                  <div className="text-sm font-medium">{s.name}</div>
-                  <div className="text-xs text-muted-foreground">{s.duration}</div>
-                </div>
-                <div className="text-sm font-semibold">{s.price}</div>
-              </div>
-            ))}
-          </div>
-          <button className="btn-primary mt-5 w-full">Book &amp; pay</button>
-          <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-            <CreditCard className="h-3.5 w-3.5" /> Secure payment via Monnify
-          </div>
+          ))}
         </div>
       </div>
     </div>
@@ -159,14 +221,18 @@ function SectionHeading({
   eyebrow,
   title,
   subtitle,
+  eyebrowClassName = "text-primary",
 }: {
   eyebrow: string;
   title: string;
   subtitle?: string;
+  eyebrowClassName?: string;
 }) {
   return (
     <div className="max-w-2xl">
-      <div className="text-xs font-semibold uppercase tracking-wider text-primary">{eyebrow}</div>
+      <div className={`text-xs font-semibold uppercase tracking-wider ${eyebrowClassName}`}>
+        {eyebrow}
+      </div>
       <h2 className="mt-2 font-display text-3xl tracking-tight sm:text-4xl">{title}</h2>
       {subtitle && <p className="mt-3 text-lg text-muted-foreground">{subtitle}</p>}
     </div>
@@ -176,23 +242,23 @@ function SectionHeading({
 function HowItWorks() {
   const steps = [
     {
-      icon: Link2,
+      icon: "solar:link-bold",
       title: "Create your page",
       body: "Sign up, pick your slug, and list your services with fixed prices or pay-what-you-want.",
     },
     {
-      icon: Users,
+      icon: "solar:users-group-rounded-bold",
       title: "Share your link",
       body: "Drop bookmi.co/you in your bio, DMs, or invoices. Anyone can browse and book — no app, no account needed.",
     },
     {
-      icon: Wallet,
+      icon: "solar:wallet-bold",
       title: "Get booked & paid",
       body: "Customers pay instantly via Monnify. Funds land in your wallet minus a small platform fee. Withdraw to your bank anytime.",
     },
   ];
   return (
-    <section id="how-it-works" className="border-b border-gray-200">
+    <section id="how-it-works" className="border-b border-gray-200 bg-[#FBD644]">
       <div className="container py-20">
         <SectionHeading
           eyebrow="How it works"
@@ -201,10 +267,10 @@ function HowItWorks() {
         />
         <div className="mt-12 grid gap-6 sm:grid-cols-3">
           {steps.map((s, i) => (
-            <div key={s.title} className="card p-6">
+            <div key={s.title} className="card p-6 pb-12">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-button bg-primary-light text-primary">
-                  <s.icon className="h-5 w-5" />
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-primary">
+                  <Icon icon={s.icon} className="h-5 w-5" />
                 </span>
                 <span className="font-mono text-sm text-muted-foreground">0{i + 1}</span>
               </div>
@@ -221,50 +287,57 @@ function HowItWorks() {
 function Features() {
   const features = [
     {
-      icon: CreditCard,
+      icon: null,
       title: "Monnify payments",
       body: "Cards, bank transfers, and USSD — customers pay however they want, instantly.",
     },
     {
-      icon: Wallet,
+      icon: "solar:wallet-bold",
       title: "Instant payouts",
       body: "Withdraw your balance to any Nigerian bank account in one tap.",
     },
     {
-      icon: Calendar,
+      icon: "solar:calendar-bold",
       title: "Bookings calendar",
       body: "See every booking in a clean calendar view and manage availability without the back-and-forth.",
     },
     {
-      icon: Sparkles,
+      icon: "solar:magic-stick-bold",
       title: "Fixed or pay-what-you-want",
       body: "Set fixed prices or let happy clients pay more with a floor you control.",
     },
     {
-      icon: Link2,
+      icon: "solar:link-bold",
       title: "One shareable link",
       body: "Your whole offering lives at bookmi.co/you. Put it anywhere — bio, receipt, WhatsApp status.",
     },
     {
-      icon: Check,
+      icon: "solar:check-circle-bold",
       title: "Confirmed by webhook",
       body: "Bookings confirm the moment Monnify verifies payment. No manual checks, no fake orders.",
     },
   ];
   return (
-    <section className="border-b border-gray-200 bg-gray-50/50">
+    <section className="border-b border-gray-200 bg-[#FFC4C4]">
       <div className="container py-20">
         <SectionHeading
           eyebrow="Features"
+          eyebrowClassName="text-[#D95656]"
           title="Everything you need to get paid for your time"
           subtitle="Bookmi handles the booking, the payment, and the payout — so you can focus on the work."
         />
         <div className="mt-12 grid gap-px overflow-hidden border border-gray-200 bg-gray-200 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((f) => (
             <div key={f.title} className="bg-white p-6">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-button bg-primary-light text-primary">
-                <f.icon className="h-5 w-5" />
-              </span>
+              {f.icon ? (
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-primary">
+                  <Icon icon={f.icon} className="h-5 w-5" />
+                </span>
+              ) : (
+                <span className="inline-flex h-10 items-center">
+                  <MonnifyMark className="h-9" />
+                </span>
+              )}
               <h3 className="mt-4 font-display text-xl">{f.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
             </div>
@@ -277,31 +350,118 @@ function Features() {
 
 function WhoItsFor() {
   const audiences = [
-    "Consultants",
-    "Tutors",
-    "Stylists",
-    "Therapists",
-    "Creatives",
-    "Coaches",
-    "Lawyers",
-    "Trainers",
+    { name: "Consultants", image: "/images/landing/pro-consultants.jpg" },
+    { name: "Tutors", image: "/images/landing/pro-tutors.jpg" },
+    { name: "Stylists", image: "/images/landing/pro-stylists.jpg" },
+    { name: "Therapists", image: "/images/landing/pro-therapists.jpg" },
+    { name: "Creatives", image: "/images/landing/pro-creatives.jpg" },
+    { name: "Coaches", image: "/images/landing/pro-coaches.jpg" },
+    { name: "Lawyers", image: "/images/landing/pro-lawyers.jpg" },
+    { name: "Trainers", image: "/images/landing/pro-trainers.jpg" },
   ];
   return (
     <section className="border-b border-gray-200">
-      <div className="container py-20">
+      <div className="container pt-20">
         <SectionHeading
           eyebrow="Who it's for"
           title="Built for Nigeria's independent pros"
           subtitle="If you sell your time or a paid service, Bookmi is the link your clients need."
         />
-        <div className="mt-10 flex flex-wrap gap-2.5">
-          {audiences.map((a) => (
-            <span
-              key={a}
-              className="rounded-button border border-gray-200 bg-white px-4 py-2 text-sm font-medium"
-            >
-              {a}
-            </span>
+      </div>
+      <div className="mt-10 flex gap-4 overflow-x-auto pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {audiences.map((a) => (
+          <div
+            key={a.name}
+            className="group relative h-[420px] w-[280px] shrink-0 overflow-hidden sm:h-[520px] sm:w-[360px]"
+          >
+            <img
+              src={a.image}
+              alt={a.name}
+              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-5">
+              <span className="font-display text-2xl text-white">{a.name}</span>
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+                <Icon icon="solar:arrow-right-up-linear" className="h-4 w-4 text-white" />
+              </span>
+            </div>
+          </div>
+        ))}
+        <Link
+          to="/auth/signup"
+          className="flex h-[420px] w-[280px] shrink-0 flex-col items-center justify-center gap-3 bg-[#FFDCC1] transition-colors hover:bg-[#ffd2ae] sm:h-[520px] sm:w-[360px]"
+        >
+          <Icon icon="solar:add-circle-linear" className="h-10 w-10 text-foreground" />
+          <span className="font-display text-3xl">You</span>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function FAQ() {
+  const items = [
+    {
+      q: "Is Bookmi free to use?",
+      a: "Signing up and creating your page is completely free. Bookmi takes a small percentage fee only when a booking or tip payment is processed through Monnify — no monthly subscription, no hidden charges.",
+    },
+    {
+      q: "How do I get paid?",
+      a: "Every payment goes straight into your Bookmi wallet, powered by Monnify. You can withdraw your balance to any Nigerian bank account at any time from your dashboard — usually within minutes.",
+    },
+    {
+      q: "Do my clients need to create an account to book me?",
+      a: "No. Clients can visit your bookmi.co/you link, pick a service, choose a time, and pay — all without signing up for anything. The fewer steps for them, the more bookings for you.",
+    },
+    {
+      q: "What payment methods are supported?",
+      a: "Monnify supports debit/credit cards, bank transfers, and USSD codes. Your clients can pay however is most convenient for them.",
+    },
+    {
+      q: "Can I set my own prices?",
+      a: "Yes. You set fixed prices per service, or enable pay-what-you-want with a minimum floor you control. You can update your prices anytime from your dashboard.",
+    },
+    {
+      q: "What happens if a client doesn't pay after booking?",
+      a: "Payment is required upfront before a booking is confirmed. Monnify verifies the transaction via webhook before we mark any slot as taken, so you'll never hold a spot for an unpaid booking.",
+    },
+    {
+      q: "Can I accept tips even if I don't offer scheduled services?",
+      a: "Absolutely. Tips and scheduled bookings are independent features. You can enable one, the other, or both — whatever fits your business model.",
+    },
+  ];
+
+  const [open, setOpen] = useState<number | null>(null);
+
+  return (
+    <section id="faq" className="border-b border-gray-200">
+      <div className="container py-20">
+        <SectionHeading
+          eyebrow="FAQ"
+          title="Common questions"
+          subtitle="Everything you need to know before you get started."
+        />
+        <div className="mt-10 max-w-2xl divide-y divide-gray-200 border-y border-gray-200">
+          {items.map((item, i) => (
+            <div key={i}>
+              <button
+                onClick={() => setOpen(open === i ? null : i)}
+                className="flex w-full items-center justify-between gap-4 py-5 text-left"
+                aria-expanded={open === i}
+              >
+                <span className="font-medium text-foreground">{item.q}</span>
+                <Icon
+                  icon="solar:alt-arrow-down-bold"
+                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${
+                    open === i ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {open === i && (
+                <p className="pb-5 text-sm leading-relaxed text-muted-foreground">{item.a}</p>
+              )}
+            </div>
           ))}
         </div>
       </div>
@@ -323,7 +483,7 @@ function FinalCTA() {
           to="/auth/signup"
           className="mt-10 inline-flex items-center gap-2 rounded-button bg-white px-8 py-4 text-base sm:text-lg font-medium text-[#D95656] transition-all hover:bg-gray-100 hover:scale-105 active:scale-95 shadow-md"
         >
-          Create your page <ArrowRight className="h-5 w-5" />
+          Create your page <Icon icon="solar:arrow-right-bold" className="h-5 w-5" />
         </Link>
       </div>
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[450px] sm:max-w-[600px] md:max-w-[800px] pointer-events-none select-none z-0">
@@ -360,6 +520,21 @@ function Footer() {
   );
 }
 
+function MockupHeader({ url }: { url: string }) {
+  return (
+    <div className="flex items-center gap-3 px-4 pt-4">
+      <img
+        src="/images/landing/avatar-3.jpg"
+        alt=""
+        className="h-[46px] w-[46px] rounded-[23px] border-2 border-[#D95656] object-cover object-top"
+      />
+      <span className="rounded-button bg-[#D95656] px-4 py-3 font-mono text-xs text-white">
+        {url}
+      </span>
+    </div>
+  );
+}
+
 function InteractiveBookingMockup() {
   const [selectedDuration, setSelectedDuration] = useState("30 min");
   const [selectedDate, setSelectedDate] = useState("Mon 20");
@@ -376,18 +551,11 @@ function InteractiveBookingMockup() {
   const currentPrice = selectedDuration === "30 min" ? "₦15,000" : "₦30,000";
 
   return (
-    <div className="card-elevated overflow-hidden bg-white p-0">
-      <div className="flex items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-        <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-        <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-        <span className="ml-2 flex-1 rounded-button border border-gray-200 bg-white px-3 py-1 font-mono text-xs text-muted-foreground">
-          bookmi.co/adaeze/book
-        </span>
-      </div>
-      <div className="p-6">
+    <div className="w-full max-w-[360px] rounded-[20px] bg-white p-4 shadow-medium">
+      <MockupHeader url="bookmi.co/adaeze/book" />
+      <div className="p-4">
         <div className="mb-4">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Service</label>
+          <label className="font-display text-xs tracking-wider text-muted-foreground">Select Service</label>
           <div className="mt-2 grid grid-cols-2 gap-2">
             {durations.map((d) => (
               <button
@@ -395,7 +563,7 @@ function InteractiveBookingMockup() {
                 onClick={() => setSelectedDuration(d.label)}
                 className={`px-3 py-2 text-left border text-sm transition-all duration-200 ${
                   selectedDuration === d.label
-                    ? "border-primary bg-primary-light/50 text-primary font-medium"
+                    ? "border-[#D95656] text-[#D95656] font-medium"
                     : "border-gray-200 hover:bg-gray-50 text-foreground"
                 }`}
               >
@@ -407,7 +575,7 @@ function InteractiveBookingMockup() {
         </div>
 
         <div className="mb-4">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Date</label>
+          <label className="font-display text-xs tracking-wider text-muted-foreground">Select Date</label>
           <div className="mt-2 grid grid-cols-4 gap-1.5">
             {dates.map((d) => (
               <button
@@ -415,7 +583,7 @@ function InteractiveBookingMockup() {
                 onClick={() => setSelectedDate(d)}
                 className={`py-2 text-center border text-xs font-medium transition-all duration-200 ${
                   selectedDate === d
-                    ? "border-primary bg-primary text-white"
+                    ? "border-[#D95656] bg-[#D95656] text-white"
                     : "border-gray-200 hover:bg-gray-50 text-muted-foreground"
                 }`}
               >
@@ -426,7 +594,7 @@ function InteractiveBookingMockup() {
         </div>
 
         <div className="mb-5">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Time (WAT)</label>
+          <label className="font-display text-xs tracking-wider text-muted-foreground">Select Time (WAT)</label>
           <div className="mt-2 grid grid-cols-3 gap-2">
             {times.map((t) => (
               <button
@@ -434,7 +602,7 @@ function InteractiveBookingMockup() {
                 onClick={() => setSelectedTime(t)}
                 className={`py-2 text-center border text-xs transition-all duration-200 ${
                   selectedTime === t
-                    ? "border-primary bg-primary-light text-primary font-medium"
+                    ? "border-[#D95656] bg-[#FFF4F4] text-[#D95656] font-medium"
                     : "border-gray-200 hover:bg-gray-50 text-muted-foreground"
                 }`}
               >
@@ -448,7 +616,7 @@ function InteractiveBookingMockup() {
           Book & Pay {currentPrice}
         </button>
         <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          <CreditCard className="h-3.5 w-3.5" /> Secure payment via Monnify
+          <Icon icon="solar:card-bold" className="h-3.5 w-3.5" /> Secure payment via Monnify
         </div>
       </div>
     </div>
@@ -493,20 +661,13 @@ function InteractiveTippingMockup() {
   };
 
   return (
-    <div className="card-elevated overflow-hidden bg-white p-0">
-      <div className="flex items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-        <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-        <span className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-        <span className="ml-2 flex-1 rounded-button border border-gray-200 bg-white px-3 py-1 font-mono text-xs text-muted-foreground">
-          bookmi.co/adaeze/tip
-        </span>
-      </div>
-      <div className="p-6">
+    <div className="w-full max-w-[360px] rounded-[20px] bg-white p-4 shadow-medium">
+      <MockupHeader url="bookmi.co/adaeze/tip" />
+      <div className="p-4">
         {isSent ? (
           <div className="flex flex-col items-center justify-center py-10 text-center animate-in fade-in zoom-in-95 duration-300">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-light text-primary mb-4">
-              <Heart className="h-6 w-6 fill-primary" />
+              <Icon icon="solar:heart-bold" className="h-6 w-6" />
             </span>
             <h4 className="font-display text-lg font-semibold text-foreground">Support Sent!</h4>
             <p className="text-sm text-muted-foreground mt-1 max-w-[200px]">
@@ -516,7 +677,7 @@ function InteractiveTippingMockup() {
         ) : (
           <form onSubmit={handleSubmit}>
             <div className="mb-4">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Support Amount</label>
+              <label className="font-display text-xs tracking-wider text-muted-foreground">Select Support Amount</label>
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {presets.map((amount) => (
                   <button
@@ -525,7 +686,7 @@ function InteractiveTippingMockup() {
                     onClick={() => handlePresetSelect(amount)}
                     className={`py-2 text-center border text-sm font-medium transition-all duration-200 ${
                       selectedPreset === amount
-                        ? "border-primary bg-primary-light text-primary"
+                        ? "border-[#D95656] bg-[#FFF4F4] text-[#D95656]"
                         : "border-gray-200 hover:bg-gray-50 text-foreground"
                     }`}
                   >
@@ -536,7 +697,7 @@ function InteractiveTippingMockup() {
             </div>
 
             <div className="mb-4">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Or enter custom amount (₦)</label>
+              <label className="font-display text-xs tracking-wider text-muted-foreground">Or enter custom amount (₦)</label>
               <input
                 type="number"
                 placeholder="Enter custom amount"
@@ -548,7 +709,7 @@ function InteractiveTippingMockup() {
             </div>
 
             <div className="mb-5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Leave a friendly note</label>
+              <label className="font-display text-xs tracking-wider text-muted-foreground">Leave a friendly note</label>
               <textarea
                 placeholder="Say something nice (optional)..."
                 value={message}
@@ -562,7 +723,7 @@ function InteractiveTippingMockup() {
               Send {getDisplayAmount()} Support
             </button>
             <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-              <CreditCard className="h-3.5 w-3.5" /> Secure payment via Monnify
+              <Icon icon="solar:card-bold" className="h-3.5 w-3.5" /> Secure payment via Monnify
             </div>
           </form>
         )}
@@ -572,75 +733,103 @@ function InteractiveTippingMockup() {
 }
 
 function DualFunctionality() {
+  const [active, setActive] = useState<"bookings" | "tips">("bookings");
+
+  const panels = {
+    bookings: {
+      icon: (
+        <img src="/images/landing/digitalmenu-icon.svg" alt="" className="h-7 w-7" />
+      ),
+      title: "Bookings & Paid Consultations",
+      body: "Let clients browse your availability, reserve their slot, and pay upfront. No calendar overlaps, no payment chasing, and no scheduling back-and-forth.",
+      points: [
+        "Set custom durations and fixed rates",
+        "Auto-verify payments via Monnify before confirm",
+        "Seamlessly integrates with your dashboard",
+      ],
+    },
+    tips: {
+      icon: (
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-primary">
+          <Icon icon="solar:heart-bold" className="h-5 w-5" />
+        </span>
+      ),
+      title: "Tips & Support",
+      body: "Give your fans, newsletter readers, or happy clients a direct path to support you. No calendar schedules required. One tap, choose an amount, and you're paid instantly.",
+      points: [
+        "Fast one-tap preset amount buttons",
+        "Let fans write friendly messages or notes",
+        "Frictionless checkout with Monnify",
+      ],
+    },
+  } as const;
+
   return (
     <section className="border-b border-gray-200 bg-white">
       <div className="container py-20">
-        <SectionHeading
-          eyebrow="One Link, Dual Power"
-          title="Double the ways to get paid. Zero extra tools."
-          subtitle="Bookmi isn't just a scheduling tool. It's a complete, friction-free portal where clients can book your time OR send tips and support—all from a single, beautiful page."
-        />
-
-        <div className="mt-12 grid gap-12 lg:grid-cols-2 lg:items-start">
-          {/* Bookings Card */}
-          <div className="flex flex-col h-full justify-between">
-            <div className="mb-8">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-button bg-primary-light text-primary">
-                  <Calendar className="h-5 w-5" />
-                </span>
-                <h3 className="font-display text-2xl tracking-tight">Bookings & Paid Consultations</h3>
-              </div>
-              <p className="mt-4 text-muted-foreground leading-relaxed">
-                Let clients browse your availability, reserve their slot, and pay upfront.
-                No calendar overlaps, no payment chasing, and no scheduling back-and-forth.
-                Perfect for consulting sessions, audits, and coaching.
+        <div className="grid gap-12 lg:grid-cols-2 lg:items-stretch">
+          <div className="flex flex-col justify-center gap-8">
+            <div>
+              <h2 className="font-display text-4xl tracking-tight sm:text-5xl">
+                Double the ways to get paid.
+              </h2>
+              <p className="mt-4 text-lg text-muted-foreground">
+                Bookmi isn't just a scheduling tool. It's a complete, friction-free portal where
+                clients can book your time OR send tips.
               </p>
-              <ul className="mt-6 space-y-2.5 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary shrink-0" /> Set custom durations and fixed rates
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary shrink-0" /> Auto-verify payments via Monnify before confirm
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary shrink-0" /> Seamlessly integrates with your dashboard
-                </li>
-              </ul>
             </div>
-            <div className="w-full max-w-md mx-auto lg:mx-0">
-              <InteractiveBookingMockup />
+            <div className="flex flex-col gap-4">
+              {(Object.keys(panels) as Array<keyof typeof panels>).map((key) => {
+                const panel = panels[key];
+                const isActive = active === key;
+                return (
+                  <div
+                    key={key}
+                    className={`relative overflow-hidden border transition-colors ${
+                      isActive ? "border-primary bg-[#FFF3EC]" : "border-gray-200 bg-white"
+                    }`}
+                  >
+                    <button
+                      onClick={() => setActive(key)}
+                      className="flex w-full items-center gap-3 px-6 py-5 text-left"
+                      aria-expanded={isActive}
+                    >
+                      {panel.icon}
+                      <span className="font-display text-xl">{panel.title}</span>
+                    </button>
+                    {isActive && (
+                      <div className="relative px-6 pb-8">
+                        <p className="text-muted-foreground leading-relaxed">{panel.body}</p>
+                        <ul className="mt-5 space-y-3 text-sm text-muted-foreground">
+                          {panel.points.map((p) => (
+                            <li key={p} className="flex items-center gap-2">
+                              <CheckBadge /> {p}
+                            </li>
+                          ))}
+                        </ul>
+                        <img
+                          src="/images/landing/yellowmark.svg"
+                          alt=""
+                          className="pointer-events-none absolute -bottom-8 -right-6 h-36 w-36 select-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
-
-          {/* Tipping Card */}
-          <div className="flex flex-col h-full justify-between">
-            <div className="mb-8">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-button bg-primary-light text-primary">
-                  <Heart className="h-5 w-5" />
-                </span>
-                <h3 className="font-display text-2xl tracking-tight">Tips & Support</h3>
-              </div>
-              <p className="mt-4 text-muted-foreground leading-relaxed">
-                Give your fans, newsletter readers, or happy clients a direct path to support you.
-                No calendar schedules required. A client wants to tip you for going above and beyond?
-                One tap, choose an amount, and you're paid instantly.
-              </p>
-              <ul className="mt-6 space-y-2.5 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary shrink-0" /> Fast one-tap preset amount buttons
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary shrink-0" /> Let fans write friendly messages or notes
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-primary shrink-0" /> Frictionless checkout with Monnify
-                </li>
-              </ul>
-            </div>
-            <div className="w-full max-w-md mx-auto lg:mx-0">
-              <InteractiveTippingMockup />
+          <div className="relative flex min-h-[560px] items-center justify-center overflow-hidden bg-[#FBD644] p-8 sm:p-12">
+            {/* Pattern renders oversized at its natural aspect ratio — sizing it to the
+               panel would squish the flowers (the SVG has preserveAspectRatio="none"). */}
+            <img
+              src="/images/landing/yellow-pattern.svg"
+              alt=""
+              className="pointer-events-none absolute left-1/2 top-1/2 w-[300%] max-w-none -translate-x-1/2 -translate-y-1/2 select-none sm:w-[220%]"
+              style={{ aspectRatio: "2313 / 3240" }}
+            />
+            <div className="relative w-[360px] max-w-full">
+              {active === "bookings" ? <InteractiveBookingMockup /> : <InteractiveTippingMockup />}
             </div>
           </div>
         </div>

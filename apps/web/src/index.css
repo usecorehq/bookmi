@@ -109,6 +109,20 @@
   }
 }
 
+/* Hero notification marquee — track holds two identical groups, sliding one
+   group-width per loop so the wrap-around is seamless. */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.animate-marquee {
+  animation: marquee 28s linear infinite;
+}
+
 /* Global override — Radix Select and any card/input that sneaks in a
    rounded utility should still land square. Mirrors qore-menu's rule. */
 [data-slot="select-trigger"],
