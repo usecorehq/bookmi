@@ -83,7 +83,17 @@ export const paymentTransactions = bookmi.table(
     reference: text("reference").notNull().unique(),
 
     providerCode: text("provider_code").notNull(),
+    /** Bookmi's OWN minted reference, echoed back by `provider.initialize()`. */
     providerReference: text("provider_reference"),
+    /**
+     * The provider's OWN internal transaction id (Monnify: `transactionReference`),
+     * distinct from `providerReference` above. Populated by `verify()` /
+     * `parseWebhook()` on success; required to call Monnify's dedicated
+     * refund API, which addresses transactions by its own reference.
+     * Nullable — rows written before this column existed are backfilled JIT
+     * by `HostBookingsService.refundBooking()` the first time they're refunded.
+     */
+    providerTransactionId: text("provider_transaction_id"),
 
     status: text("status").notNull().default("pending"),
     // pending | processing | success | failed | abandoned | reversed
@@ -236,6 +246,14 @@ export const hostWallets = bookmi.table("host_wallets", {
   monnifyWalletReference: text("monnify_wallet_reference"),
   reservedAccountNumber: text("reserved_account_number"),
   reservedBankName: text("reserved_bank_name"),
+  /**
+   * Bank Verification Number — required by Monnify's real reserved-account
+   * API. Sensitive NDPR-regulated PII: never log the raw value. Today this
+   * only feeds the MOCKED reserved-account activation flow (see
+   * HostWalletService.activateReservedAccount) — no real Monnify/NIBSS BVN
+   * validation happens against it yet.
+   */
+  bvn: text("bvn"),
   balanceKobo: bigint("balance_kobo", { mode: "number" }).notNull().default(0),
   bankCode: text("bank_code"),
   bankAccountNumber: text("bank_account_number"),
