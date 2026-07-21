@@ -1,0 +1,23 @@
+%%{init: {"theme": "neutral"} }%%
+flowchart LR
+    subgraph Credits
+        P1[Booking payment succeeds<br/>BookingCheckoutHandler.onSuccess]
+        P2[Reserved-account bank transfer<br/>ReservedAccountWebhookService]
+        P4[Compensating credit<br/>on late refund failure<br/>RefundWebhookService]
+    end
+
+    subgraph Debits
+        P3a[Host withdrawal<br/>HostWalletService.withdraw]
+        P3b[Customer refund<br/>HostBookingsService.refundBooking]
+    end
+
+    P1 -- "credit, sourceType: payment_transaction<br/>sourceMode: booking | tip" --> L[(wallet_ledger<br/>hash-chained, append-only)]
+    P2 -- "credit, sourceType: reserved_account<br/>sourceMode: wallet_topup, no domain row" --> L
+    P4 -- "credit, compensating entry" --> L
+    L -- "debit, sourceType: payout<br/>sourceMode: withdrawal" --> P3a
+    L -- "debit, sourceType: refund<br/>sourceMode: refund" --> P3b
+
+    L --> BAL[host_wallets.balanceKobo<br/>cached snapshot, kept in sync<br/>in the same DB transaction]
+
+    note1["Every entry: balanceBeforeKobo/balanceAfterKobo snapshot<br/>+ currentHash = hash(immutable columns + prevHash)<br/>First entry per host chains to sentinel GENESIS.<br/>appendEntry() takes a row-level lock (SELECT ... FOR UPDATE<br/>on host_wallets) as the serialization point — a debit that<br/>would go negative throws."]
+    L -.-> note1

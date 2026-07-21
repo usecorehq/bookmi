@@ -1,0 +1,34 @@
+%%{init: {"theme": "neutral"} }%%
+flowchart TD
+    subgraph Onboarding
+        A1[Host signs up<br/>Supabase Auth + OTP] --> A2[Onboarding wizard:<br/>name, slug, avatar]
+        A2 --> A3[Host adds services<br/>booking or tip type]
+        A3 --> A4[Host shares storefront link<br/>bookmi.com/:slug]
+    end
+
+    subgraph Booking_and_Payment [Booking & Payment]
+        B1[Customer opens<br/>public storefront] --> B2[Picks service + slot]
+        B2 --> B3["POST /:slug/checkout<br/>(booking row: pending)"]
+        B3 --> B4[PaymentsService.initiate<br/>payment_transactions: pending]
+        B4 --> B5[Monnify checkout popup]
+        B5 --> B6{Verify or Webhook<br/>race}
+        B6 --> B7[finalize: state-machine guard<br/>+ advisory lock]
+        B7 --> B8{Payment success?}
+        B8 -- yes --> B9[Booking confirmed<br/>wallet_ledger credited<br/>emails sent]
+        B8 -- no --> B10[Booking failed/canceled]
+    end
+
+    subgraph Wallet_and_Payout [Wallet & Payout]
+        C1[(wallet_ledger<br/>hash-chained)]
+        B9 --> C1
+        C2[Reserved-account<br/>bank transfer] --> C1
+        C1 --> C3{Host withdraws?}
+        C3 -- yes --> C4[OTP challenge<br/>advisory lock]
+        C4 --> C5[Monnify disburse]
+        C5 --> C6[payouts row + ledger debit]
+        C3 -- refund requested --> C7[OTP challenge<br/>advisory lock]
+        C7 --> C8[Monnify disburse/refund]
+        C8 --> C9[refunds row + ledger debit]
+    end
+
+    A4 --> B1

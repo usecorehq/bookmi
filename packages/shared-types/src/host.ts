@@ -36,6 +36,7 @@ export interface HostWallet {
   monnifyWalletReference: string | null;
   reservedAccountNumber: string | null;
   reservedBankName: string | null;
+  reservedAccountName: string | null;
   balanceKobo: number;
   bankCode: string | null;
   bankAccountNumber: string | null;

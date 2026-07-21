@@ -737,6 +737,7 @@ function parseReservedAccountWebhook(
     currency: data.currencyCode ?? data.currency,
     paidAt: parseMonnifyDate(data.paidOn),
     customerCode: data.customer?.customerReference,
+    payerName: data.customer?.name,
     failureReason:
       data.paymentStatus === "PAID" || data.paymentStatus === "OVERPAID"
         ? undefined

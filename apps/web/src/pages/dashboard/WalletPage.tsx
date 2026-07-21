@@ -125,6 +125,7 @@ function WalletContent({
         <ReservedAccountCard
           accountNumber={wallet.reservedAccountNumber}
           bankName={wallet.reservedBankName ?? "Monnify"}
+          accountName={wallet.reservedAccountName}
         />
       ) : (
         <PendingActivationCard onActivate={onActivateReservedAccount} />
@@ -173,9 +174,11 @@ function KpiCard({
 function ReservedAccountCard({
   accountNumber,
   bankName,
+  accountName,
 }: {
   accountNumber: string;
   bankName: string;
+  accountName?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
@@ -194,6 +197,12 @@ function ReservedAccountCard({
           <div className="text-xs text-muted-foreground uppercase tracking-wide">Bank</div>
           <div className="font-mono text-lg font-semibold">{bankName}</div>
         </div>
+        {accountName && (
+          <div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide">Account name</div>
+            <div className="font-mono text-lg font-semibold">{accountName}</div>
+          </div>
+        )}
         <div className="flex-1 min-w-[12rem]">
           <div className="text-xs text-muted-foreground uppercase tracking-wide">Account number</div>
           <div className="font-mono text-lg font-semibold tracking-wider">{accountNumber}</div>

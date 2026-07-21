@@ -244,8 +244,16 @@ export const hostWallets = bookmi.table("host_wallets", {
     .primaryKey()
     .references(() => hostProfiles.id, { onDelete: "cascade" }),
   monnifyWalletReference: text("monnify_wallet_reference"),
+  /**
+   * Denormalized cache of whichever `reserved_bank_accounts` row has
+   * `isActive: true` for this host — same pattern as `balance_kobo` caching
+   * the ledger tip. Monnify can provision several partner banks under one
+   * reserved-account reference; this is just the one the host currently
+   * sees on their wallet page.
+   */
   reservedAccountNumber: text("reserved_account_number"),
   reservedBankName: text("reserved_bank_name"),
+  reservedAccountName: text("reserved_account_name"),
   /**
    * Bank Verification Number — required by Monnify's real reserved-account
    * API. Sensitive NDPR-regulated PII: never log the raw value. Feeds
@@ -263,6 +271,42 @@ export const hostWallets = bookmi.table("host_wallets", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+/**
+ * Every partner bank Monnify provisioned for a host's reserved-account
+ * reference — `getAllAvailableBanks: true` (the default when
+ * `MONNIFY_RESERVED_ACCOUNT_BANK_CODE` is unset) can return more than one.
+ * Exactly one row per host has `isActive: true` (enforced by the partial
+ * unique index below); that row's details are cached onto
+ * `host_wallets.reserved_account_number/reserved_bank_name/reserved_account_name`
+ * for display. Switching which bank is active has no API surface today —
+ * this repo has no admin auth/RBAC to gate that action behind yet, so it's a
+ * manual DB update until real admin tooling exists.
+ */
+export const reservedBankAccounts = bookmi.table(
+  "reserved_bank_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id),
+    bankCode: text("bank_code").notNull(),
+    bankName: text("bank_name").notNull(),
+    accountNumber: text("account_number").notNull(),
+    accountName: text("account_name"),
+    isActive: boolean("is_active").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostIdx: index("rba_host_idx").on(t.hostId),
+    hostAccountUniq: uniqueIndex("rba_host_account_uniq").on(t.hostId, t.accountNumber),
+    // At most one active account per host — enforced at the DB level.
+    hostActiveUniq: uniqueIndex("rba_host_active_uniq")
+      .on(t.hostId)
+      .where(sql`${t.isActive} = true`),
+  }),
+);
 
 export const services = bookmi.table(
   "services",
@@ -476,6 +520,42 @@ export const refunds = bookmi.table(
 );
 
 /**
+ * Domain row for a reserved-account credit — money transferred in by a third
+ * party, reported via Monnify's `RESERVED_ACCOUNT_TRANSACTION` webhook (see
+ * `ReservedAccountWebhookService.reconcile`). Mirrors `payouts`/`refunds`:
+ * gives this credit path a backing row of its own instead of a bare
+ * `wallet_ledger` entry with `source_id: null`. `provider_reference` is
+ * Monnify's `transactionReference` — the field to dedupe on; the
+ * `(host_id, provider_reference)` partial unique index is a second line of
+ * defense against double-crediting beyond the upstream
+ * `payment_webhook_events` dedup. `payer_name` is best-effort (Monnify's
+ * webhook is only documented to carry the sender's name, not bank/account).
+ */
+export const walletTopups = bookmi.table(
+  "wallet_topups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    providerReference: text("provider_reference"),
+    status: text("status").notNull().default("success"),
+    // success | failed
+    failureReason: text("failure_reason"),
+    payerName: text("payer_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostIdx: index("wt_host_idx").on(t.hostId, t.status),
+    hostProviderRefUniq: uniqueIndex("wt_host_provider_ref_uniq")
+      .on(t.hostId, t.providerReference)
+      .where(sql`${t.providerReference} IS NOT NULL`),
+  }),
+);
+
+/**
  * Immutable hash-chained wallet ledger. Every credit / debit against a
  * `host_wallets.balance_kobo` MUST land as an entry here, inside the same
  * transaction that mutates the balance. That gives us a tamper-evident audit
@@ -490,12 +570,10 @@ export const refunds = bookmi.table(
  *
  * `source_type` names the domain table that produced the entry
  * (`payment_transaction` | `payout` | `refund` | `reserved_account`),
- * `source_id` links to that row's uuid (null for `reserved_account` — a
- * reserved-account credit has no domain row of its own, just the provider's
- * transaction reference in the entry's memo), and `source_mode` describes
- * the business intent (`booking` | `tip` | `withdrawal` | `refund` |
- * `wallet_funding`). Both together answer "what caused this ₦ delta?"
- * without a join.
+ * `source_id` links to that row's uuid (for `reserved_account`, that's a
+ * `wallet_topups` row), and `source_mode` describes the business intent
+ * (`booking` | `tip` | `withdrawal` | `refund` | `wallet_topup`). Both
+ * together answer "what caused this ₦ delta?" without a join.
  */
 export const walletLedger = bookmi.table(
   "wallet_ledger",
@@ -511,7 +589,7 @@ export const walletLedger = bookmi.table(
     sourceType: text("source_type").notNull(),
     // 'payment_transaction' | 'payout' | 'refund' | 'reserved_account'
     sourceMode: text("source_mode").notNull(),
-    // 'booking' | 'tip' | 'withdrawal' | 'refund' | 'wallet_funding'
+    // 'booking' | 'tip' | 'withdrawal' | 'refund' | 'wallet_topup'
     balanceBeforeKobo: bigint("balance_before_kobo", { mode: "number" }).notNull(),
     balanceAfterKobo: bigint("balance_after_kobo", { mode: "number" }).notNull(),
     status: text("status").notNull().default("success"),
@@ -577,13 +655,17 @@ export type Customer = typeof customers.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
 export type NewRefund = typeof refunds.$inferInsert;
+export type ReservedBankAccount = typeof reservedBankAccounts.$inferSelect;
+export type NewReservedBankAccount = typeof reservedBankAccounts.$inferInsert;
+export type WalletTopup = typeof walletTopups.$inferSelect;
+export type NewWalletTopup = typeof walletTopups.$inferInsert;
 export type SecurityChallenge = typeof securityChallenges.$inferSelect;
 export type WalletLedgerEntry = typeof walletLedger.$inferSelect;
 export type NewWalletLedgerEntry = typeof walletLedger.$inferInsert;
 
 export type LedgerEntryType = "credit" | "debit";
 export type LedgerSourceType = "payment_transaction" | "payout" | "refund" | "reserved_account";
-export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund" | "wallet_funding";
+export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund" | "wallet_topup";
 export type LedgerEntryStatus = "pending" | "success" | "failed" | "cancelled";
 
 export type RefundStatus = "processing" | "success" | "failed";

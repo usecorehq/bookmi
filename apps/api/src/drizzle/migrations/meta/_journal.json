@@ -71,6 +71,13 @@
       "when": 1784642262682,
       "tag": "0009_flawless_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784666026316,
+      "tag": "0010_reserved_bank_accounts_and_wallet_topups",
+      "breakpoints": true
     }
   ]
 }

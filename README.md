@@ -8,6 +8,10 @@
 - **Customers** open the slug, pick services + a time, pay through the Monnify popup.
 - **Bookmi** pockets a small platform fee; the rest credits the host's Monnify-backed wallet, ready to withdraw to any Nigerian bank account.
 
+<img src="docs/screenshots/hero.jpeg" alt="Bookmi Hero Screenshot" width="800">
+
+<img src="docs/screenshots/bookings.jpeg" alt="Bookmi Hero Screenshot" width="800">
+
 ---
 
 ## Stack at a glance
@@ -82,6 +86,7 @@ packages/
 docs/
   architecture/       Why we made the choices we made.
   guides/             How to run + deploy.
+  diagrams/           C4 model, flow diagrams, user journeys (mermaid/ source, images/ SVG).
 docker/
   docker-compose.yml  Mailhog for local SMTP capture.
 turbo.json            Task pipeline (dev / build / test / typecheck).
@@ -94,6 +99,15 @@ pnpm-workspace.yaml   Workspace packages.
 
 Everything worth understanding lives under [`docs/`](docs/README.md). The critical reads:
 
+<table>
+<tr>
+<td align="center"><img src="docs/diagrams/images/c4-context.svg" alt="Bookmi C4 system context diagram" width="450"><br/><b>A</b> — C4 Context: Bookmi's place between hosts, customers, and external systems (Supabase Auth, Monnify, SMTP, Cloudinary)</td>
+<td align="center"><img src="docs/diagrams/images/c4-container.svg" alt="Bookmi C4 container diagram" width="450"><br/><b>B</b> — C4 Container: the Web SPA, API, Postgres, and Redis/BullMQ, and how they talk to each other and to those external systems</td>
+</tr>
+</table>
+
+More architecture illustrations (payment lifecycle, booking/payout flows, system flowchart, user journeys) in **[Architecture diagrams](docs/diagrams/README.md)**.
+
 ### Architecture — why we built it this way
 
 - **[Payment provider abstraction](docs/architecture/payments.md)** — Interface, registry, state machine, purpose handler pattern. Adding a new provider is one file.
@@ -101,6 +115,7 @@ Everything worth understanding lives under [`docs/`](docs/README.md). The critic
 - **[Payouts and refunds](docs/architecture/payouts.md)** — OTP-gated host withdrawals and customer refunds, both writing through the ledger above.
 - **[Email sending](docs/architecture/emails.md)** — React Email templates, provider abstraction, preview server, why we send inline (for now) and the queue upgrade path.
 - **[Booking flow, end-to-end](docs/architecture/booking-flow.md)** — Full sequence diagram from signup through paid booking, including how we handle payment races, popup closures, and webhook lag.
+- **[Architecture diagrams](docs/diagrams/README.md)** — C4 model, payment/booking/payout flows, and creator/audience/onboarding journeys, as Mermaid + SVG.
 
 ### Guides — how to run + deploy
 

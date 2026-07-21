@@ -1,0 +1,61 @@
+%%{init: {"theme": "neutral"} }%%
+sequenceDiagram
+    autonumber
+    actor Host
+    participant Web as Web SPA<br/>(Wallet page)
+    participant Sec as SecurityService
+    participant HW as HostWalletService<br/>/ HostBookingsService
+    participant DB as Postgres
+    participant Mon as Monnify
+    participant Wallet as WalletLedgerService
+
+    note over Host,Wallet: Same shape for a payout (withdrawal) and a refund —<br/>only the target table (payouts vs refunds) and disburse call differ
+
+    Host->>Web: request withdrawal (amount) / refund (booking)
+    Web->>Sec: POST .../security/otp/challenge
+    Sec-->>Host: OTP sent (email)
+    Host->>Web: enter OTP + confirm
+
+    Web->>HW: withdraw(amount, otpCode, idempotencyKey)<br/>/ refundBooking(bookingId, otpCode, idempotencyKey)
+
+    rect rgb(245, 245, 245)
+        note over HW,DB: insert-first idempotency claim
+        HW->>DB: INSERT payouts/refunds row (status: processing)<br/>ON CONFLICT (hostId/bookingId, idempotencyKey) DO NOTHING
+        alt row already existed with same amount
+            DB-->>HW: cached row
+            HW-->>Web: return cached result (idempotent replay)
+        else same key, different amount
+            DB-->>HW: conflicting row
+            HW-->>Web: reject — stale key reuse
+        end
+    end
+
+    HW->>Sec: verifyAndConsume(userId, "withdraw_funds"/"refund_booking", otpCode)
+    alt OTP invalid/expired
+        Sec-->>HW: failure
+        HW->>DB: delete claim row
+        HW-->>Web: error — retry with fresh OTP
+    else OTP valid
+        rect rgb(245, 245, 245)
+            note over HW,Wallet: advisory-locked disburse (one transaction)
+            HW->>DB: pg_advisory_xact_lock(hashtextextended(hostId, 2))
+            HW->>DB: re-read balanceKobo under lock
+            alt insufficient balance
+                DB-->>HW: reject
+            else sufficient balance
+                HW->>Mon: disburse() (deterministic reference)<br/>or dedicated refund API if MONNIFY_USE_REFUND_API
+                Mon-->>HW: disbursement reference + status
+                HW->>DB: update payouts/refunds SET monnifyReference, status
+                HW->>Wallet: appendEntry(debit, amountKobo,<br/>sourceType: payout|refund)
+            end
+        end
+        HW-->>Web: success
+    end
+
+    opt refund only, MONNIFY_USE_REFUND_API on
+        Mon->>HW: async refund webhook (SUCCESSFUL_REFUND / FAILED_REFUND)
+        HW->>HW: RefundWebhookService.reconcile()
+        note right of HW: on late failure, may emit a<br/>compensating credit ledger entry
+    end
+
+    note over HW: Known MVP gap - payouts have no webhook<br/>reconciliation. Any non-failed Monnify<br/>response is treated as final and debited immediately

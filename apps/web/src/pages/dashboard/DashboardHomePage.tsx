@@ -12,6 +12,7 @@ import {
   Ticket,
   RefreshCcw,
   Banknote,
+  Landmark,
 } from "lucide-react";
 import type {
   DailyGrossBucket,
@@ -322,6 +323,11 @@ const MODE_META: Record<WalletLedgerEntry["sourceMode"], ModeMeta> = {
     label: "Refund",
     icon: <RefreshCcw className="w-4 h-4" />,
     fallbackMemo: "Customer refund",
+  },
+  wallet_topup: {
+    label: "Wallet top-up",
+    icon: <Landmark className="w-4 h-4" />,
+    fallbackMemo: "Bank transfer to reserved account",
   },
 };
 

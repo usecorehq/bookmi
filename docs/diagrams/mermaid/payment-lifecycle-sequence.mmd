@@ -1,0 +1,64 @@
+%%{init: {"theme": "neutral"} }%%
+sequenceDiagram
+    autonumber
+    participant Client as Client (Web SPA)
+    participant PS as PaymentsService
+    participant Reg as PaymentProviderRegistry
+    participant Mon as MonnifyProvider
+    participant DB as Postgres
+    participant Purpose as PurposeHandler<br/>(e.g. BookingCheckoutHandler)
+
+    Client->>PS: initiate(purposeType, purposeId, idempotencyKey)
+    PS->>DB: check (initiatorUserId, idempotencyKey)
+    alt existing tx found
+        DB-->>PS: existing payment_transactions row
+        PS-->>Client: resume existing transaction
+    else new transaction
+        PS->>Purpose: authorizeInitiate() + resolveInitiate()
+        Purpose-->>PS: server-locked amount/currency
+        PS->>Reg: resolveForCountry(countryCode)
+        Reg-->>PS: MonnifyProvider (priority-ordered)
+        PS->>DB: insert payment_transactions (status: pending)<br/>insert payment_events "initiated"
+        PS->>Mon: initialize(reference, amount, ...)
+        Mon-->>PS: providerReference (+ authorizationUrl if checkout_url mode)
+        PS-->>Client: reference + checkout details
+    end
+
+    Client->>Mon: complete payment (Monnify popup)
+
+    par Client-triggered verify
+        Client->>PS: GET /payments/:reference/verify
+        PS->>Mon: verify(providerReference)
+        Mon-->>PS: status
+        PS->>DB: insert payment_events "verified"
+        PS->>PS: finalize(txId, reportedStatus)
+    and Async webhook (may arrive before, during, or after verify)
+        Mon->>PS: POST /payments/webhook/monnify (HMAC-signed)
+        PS->>Mon: verifyWebhookSignature(rawBody)
+        PS->>Mon: parseWebhook(payload)
+        PS->>DB: insert payment_webhook_events (providerCode, providerEventId)
+        alt duplicate event (unique violation)
+            DB-->>PS: 23505 -> already processed, no-op
+        else new event
+            PS->>PS: finalize(txId, reportedStatus)
+        end
+    end
+
+    rect rgb(245, 245, 245)
+        note over PS,DB: finalize() — critical section
+        PS->>DB: SELECT pg_advisory_xact_lock(hashtextextended(txId, 0))
+        PS->>DB: reload current status
+        alt already terminal / same status
+            PS->>PS: no-op (replay-safe)
+        else amount or currency mismatch
+            PS->>DB: insert payment_events "error"
+            note right of PS: refuses to settle on bad numbers
+        else valid transition (payment-state.ts)
+            PS->>DB: update status + timestamps<br/>insert payment_events "status_changed"
+            PS->>DB: COMMIT
+        end
+    end
+
+    opt transitioned into success or a terminal failure
+        PS->>Purpose: onSuccess() / onFailure() (post-commit, best-effort)
+    end

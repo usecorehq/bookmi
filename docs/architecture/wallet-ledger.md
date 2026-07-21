@@ -1,5 +1,7 @@
 # The wallet ledger: an immutable hash chain
 
+> Diagram: [wallet ledger data flow](../diagrams/images/wallet-ledger-flow.svg)
+
 `bookmi.wallet_ledger` is the source of truth for every change to a host's wallet balance — both money coming in ([Payments](payments.md), a booking settling) and money going out ([Payouts and refunds](payouts.md), a withdrawal or refund). This doc covers the ledger itself; the other two cover what writes to it and why.
 
 `host_wallets.balance_kobo` is a **cache** — it's always equal to the `balance_after_kobo` of the host's most recent `wallet_ledger` row. The ledger is the record; the wallet row is just the fast-read denormalization of its tip.
