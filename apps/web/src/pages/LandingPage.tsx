@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "@iconify/react";
+import { Reveal } from "@/components/ui/Reveal";
 
 export function LandingPage() {
   return (
@@ -71,21 +72,32 @@ function Hero() {
       <div className="container py-14 sm:py-16">
         <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-button bg-primary-light py-1 pl-2 pr-3 text-xs font-medium text-primary">
+            <span
+              className="anim-fade-up inline-flex items-center gap-1.5 rounded-button bg-primary-light py-1 pl-2 pr-3 text-xs font-medium text-primary"
+            >
               <MonnifyMark className="h-4" />
               Powered by Monnify
             </span>
-            <h1 className="mt-5 font-display text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-[1.1]">
+            <h1
+              className="anim-fade-up mt-5 font-display text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-[1.1]"
+              style={{ "--anim-delay": "90ms" } as React.CSSProperties}
+            >
               Your bookable page,
               <br />
               <span className="text-primary">in one link.</span>
             </h1>
-            <p className="mt-5 max-w-md text-lg text-muted-foreground">
+            <p
+              className="anim-fade-up mt-5 max-w-md text-lg text-muted-foreground"
+              style={{ "--anim-delay": "180ms" } as React.CSSProperties}
+            >
               Share <span className="font-mono text-foreground">bookmi.co/you</span>. Let anyone book
               your services and pay in seconds — money lands in your Monnify wallet, withdraw to your
               bank anytime.
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div
+              className="anim-fade-up mt-8 flex flex-col gap-3 sm:flex-row"
+              style={{ "--anim-delay": "270ms" } as React.CSSProperties}
+            >
               <Link to="/auth/signup" className="btn-primary text-base">
                 Get your link <Icon icon="solar:arrow-right-bold" className="h-4 w-4" />
               </Link>
@@ -93,7 +105,10 @@ function Hero() {
                 See how it works
               </a>
             </div>
-            <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
+            <ul
+              className="anim-fade-up mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground"
+              style={{ "--anim-delay": "360ms" } as React.CSSProperties}
+            >
               <li className="inline-flex items-center gap-2">
                 <CheckBadge /> No setup fee
               </li>
@@ -105,7 +120,9 @@ function Hero() {
               </li>
             </ul>
           </div>
-          <HeroPreview />
+          <div className="anim-fade-up" style={{ "--anim-delay": "220ms" } as React.CSSProperties}>
+            <HeroPreview />
+          </div>
         </div>
       </div>
     </section>
@@ -256,23 +273,27 @@ function HowItWorks() {
   return (
     <section id="how-it-works" className="border-b border-gray-200 bg-[#FBD644]">
       <div className="container py-20">
-        <SectionHeading
-          eyebrow="How it works"
-          title="From sign-up to booked in 5 minutes"
-          subtitle="No website to build, no payment gateway to wire. Just a link that does the work."
-        />
+        <Reveal>
+          <SectionHeading
+            eyebrow="How it works"
+            title="From sign-up to booked in 5 minutes"
+            subtitle="No website to build, no payment gateway to wire. Just a link that does the work."
+          />
+        </Reveal>
         <div className="mt-12 grid gap-6 sm:grid-cols-3">
           {steps.map((s, i) => (
-            <div key={s.title} className="card p-6 pb-12">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-primary">
-                  <Icon icon={s.icon} className="h-5 w-5" />
-                </span>
-                <span className="font-mono text-sm text-muted-foreground">0{i + 1}</span>
+            <Reveal key={s.title} delay={i * 90}>
+              <div className="card h-full p-6 pb-12 transition-[transform,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-medium">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-primary">
+                    <Icon icon={s.icon} className="h-5 w-5" />
+                  </span>
+                  <span className="font-mono text-sm text-muted-foreground">0{i + 1}</span>
+                </div>
+                <h3 className="mt-4 font-display text-xl">{s.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
               </div>
-              <h3 className="mt-4 font-display text-xl">{s.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-            </div>
+            </Reveal>
           ))}
         </div>
       </div>
@@ -316,13 +337,18 @@ function Features() {
   return (
     <section className="border-b border-gray-200 bg-[#FFC4C4]">
       <div className="container py-20">
-        <SectionHeading
-          eyebrow="Features"
-          eyebrowClassName="text-[#D95656]"
-          title="Everything you need to get paid for your time"
-          subtitle="Bookmi handles the booking, the payment, and the payout — so you can focus on the work."
-        />
-        <div className="mt-12 grid gap-px overflow-hidden border border-gray-200 bg-gray-200 sm:grid-cols-2 lg:grid-cols-3">
+        <Reveal>
+          <SectionHeading
+            eyebrow="Features"
+            eyebrowClassName="text-[#D95656]"
+            title="Everything you need to get paid for your time"
+            subtitle="Bookmi handles the booking, the payment, and the payout — so you can focus on the work."
+          />
+        </Reveal>
+        <Reveal
+          delay={100}
+          className="mt-12 grid gap-px overflow-hidden border border-gray-200 bg-gray-200 sm:grid-cols-2 lg:grid-cols-3"
+        >
           {features.map((f) => (
             <div key={f.title} className="bg-white p-6">
               {f.icon ? (
@@ -338,7 +364,7 @@ function Features() {
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
             </div>
           ))}
-        </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -358,13 +384,15 @@ function WhoItsFor() {
   return (
     <section className="border-b border-gray-200">
       <div className="container pt-20">
-        <SectionHeading
-          eyebrow="Who it's for"
-          title="Built for Nigeria's independent pros"
-          subtitle="If you sell your time or a paid service, Bookmi is the link your clients need."
-        />
+        <Reveal>
+          <SectionHeading
+            eyebrow="Who it's for"
+            title="Built for Nigeria's independent pros"
+            subtitle="If you sell your time or a paid service, Bookmi is the link your clients need."
+          />
+        </Reveal>
       </div>
-      <div className="mt-10 overflow-hidden">
+      <Reveal delay={100} className="mt-10 overflow-hidden">
         <div className="animate-marquee-slow flex w-max hover:[animation-play-state:paused]">
           {[0, 1].map((half) => (
             <div key={half} className="flex gap-4 pr-4" aria-hidden={half === 1}>
@@ -400,7 +428,7 @@ function WhoItsFor() {
             </div>
           ))}
         </div>
-      </div>
+      </Reveal>
     </section>
   );
 }
@@ -442,7 +470,7 @@ function FAQ() {
   return (
     <section id="faq" className="border-b border-gray-200 bg-gray-50/50">
       <div className="container py-20">
-        <div className="mx-auto max-w-2xl text-center">
+        <Reveal className="mx-auto max-w-2xl text-center">
           <div className="text-xs font-semibold uppercase tracking-wider text-primary">FAQ</div>
           <h2 className="mt-2 font-display text-3xl tracking-tight sm:text-4xl">
             Common questions
@@ -450,37 +478,40 @@ function FAQ() {
           <p className="mt-3 text-lg text-muted-foreground">
             Everything you need to know before you get started.
           </p>
-        </div>
+        </Reveal>
         <div className="mx-auto mt-12 flex max-w-2xl flex-col gap-3">
           {items.map((item, i) => {
             const isOpen = open === i;
             return (
-              <div
-                key={i}
-                className={`border transition-colors ${
-                  isOpen ? "border-primary bg-white" : "border-gray-200 bg-white hover:border-gray-300"
-                }`}
-              >
-                <button
-                  onClick={() => setOpen(isOpen ? null : i)}
-                  className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
-                  aria-expanded={isOpen}
+              <Reveal key={i} delay={i * 50}>
+                <div
+                  className={`border bg-white transition-[border-color,transform,box-shadow] duration-300 ${
+                    isOpen
+                      ? "border-primary"
+                      : "border-gray-200 hover:border-gray-300 hover:-translate-y-0.5 hover:shadow-medium"
+                  }`}
                 >
-                  <span className="font-display text-lg text-foreground">{item.q}</span>
-                  <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 ${
-                      isOpen ? "bg-primary text-white rotate-180" : "bg-primary-light text-primary"
-                    }`}
+                  <button
+                    onClick={() => setOpen(isOpen ? null : i)}
+                    className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
+                    aria-expanded={isOpen}
                   >
-                    <Icon icon="solar:alt-arrow-down-linear" className="h-4 w-4" />
-                  </span>
-                </button>
-                {isOpen && (
-                  <p className="px-6 pb-6 text-[15px] leading-relaxed text-muted-foreground animate-in fade-in slide-in-from-top-1 duration-200">
-                    {item.a}
-                  </p>
-                )}
-              </div>
+                    <span className="font-display text-lg text-foreground">{item.q}</span>
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 ${
+                        isOpen ? "bg-primary text-white rotate-180" : "bg-primary-light text-primary"
+                      }`}
+                    >
+                      <Icon icon="solar:alt-arrow-down-linear" className="h-4 w-4" />
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <p className="px-6 pb-6 text-[15px] leading-relaxed text-muted-foreground animate-in fade-in slide-in-from-top-1 duration-200">
+                      {item.a}
+                    </p>
+                  )}
+                </div>
+              </Reveal>
             );
           })}
         </div>
@@ -500,25 +531,29 @@ function FinalCTA() {
   return (
     <section className="relative overflow-hidden border-b border-gray-200 bg-[#D95656] text-white">
       <div className="container relative z-10 pt-28 pb-52 sm:pt-36 sm:pb-64 text-center">
-        <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl tracking-tight">
-          Get your bookmi link today.
-        </h2>
-        <p className="mx-auto mt-6 max-w-2xl text-lg sm:text-xl opacity-90 leading-relaxed">
-          Free to set up. Live in five minutes. Start getting booked.
-        </p>
-        <Link
-          to="/auth/signup"
-          className="mt-10 inline-flex items-center gap-2 rounded-button bg-white px-8 py-4 text-base sm:text-lg font-medium text-[#D95656] transition-all hover:bg-gray-100 hover:scale-105 active:scale-95 shadow-md"
-        >
-          Create your page <Icon icon="solar:arrow-right-bold" className="h-5 w-5" />
-        </Link>
+        <Reveal>
+          <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl tracking-tight">
+            Get your bookmi link today.
+          </h2>
+        </Reveal>
+        <Reveal delay={80}>
+          <p className="mx-auto mt-6 max-w-2xl text-lg sm:text-xl opacity-90 leading-relaxed">
+            Free to set up. Live in five minutes. Start getting booked.
+          </p>
+        </Reveal>
+        <Reveal delay={160}>
+          <Link
+            to="/auth/signup"
+            className="mt-10 inline-flex items-center gap-2 rounded-button bg-white px-8 py-4 text-base sm:text-lg font-medium text-[#D95656] transition-all hover:bg-gray-100 hover:scale-105 active:scale-95 shadow-md"
+          >
+            Create your page <Icon icon="solar:arrow-right-bold" className="h-5 w-5" />
+          </Link>
+        </Reveal>
       </div>
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[240px] sm:max-w-[300px] md:max-w-[360px] pointer-events-none select-none z-0">
-        <img
-          src="/images/halfqore.svg"
-          alt=""
-          className="w-full h-auto object-bottom block animate-in fade-in slide-in-from-bottom-5 duration-700"
-        />
+        <Reveal delay={200}>
+          <img src="/images/halfqore.svg" alt="" className="w-full h-auto object-bottom block" />
+        </Reveal>
       </div>
     </section>
   );
@@ -798,7 +833,7 @@ function DualFunctionality() {
       <div className="container py-20">
         <div className="grid gap-12 lg:grid-cols-2 lg:items-stretch">
           <div className="flex flex-col justify-center gap-8">
-            <div>
+            <Reveal>
               <h2 className="font-display text-4xl tracking-tight sm:text-5xl">
                 Double the ways to get paid.
               </h2>
@@ -806,8 +841,8 @@ function DualFunctionality() {
                 Bookmi isn't just a scheduling tool. It's a complete, friction-free portal where
                 clients can book your time OR send tips.
               </p>
-            </div>
-            <div className="flex flex-col gap-4">
+            </Reveal>
+            <Reveal delay={80} className="flex flex-col gap-4">
               {(Object.keys(panels) as Array<keyof typeof panels>).map((key) => {
                 const panel = panels[key];
                 const isActive = active === key;
@@ -827,7 +862,7 @@ function DualFunctionality() {
                       <span className="font-display text-xl">{panel.title}</span>
                     </button>
                     {isActive && (
-                      <div className="relative px-6 pb-8">
+                      <div className="relative px-6 pb-8 animate-in fade-in slide-in-from-top-2 duration-300">
                         <p className="text-muted-foreground leading-relaxed">{panel.body}</p>
                         <ul className="mt-5 space-y-3 text-sm text-muted-foreground">
                           {panel.points.map((p) => (
@@ -846,7 +881,7 @@ function DualFunctionality() {
                   </div>
                 );
               })}
-            </div>
+            </Reveal>
           </div>
           <div className="relative flex min-h-[560px] items-center justify-center overflow-hidden bg-[#FBD644] p-8 sm:p-12">
             {/* Pattern renders oversized at its natural aspect ratio — sizing it to the
@@ -857,9 +892,11 @@ function DualFunctionality() {
               className="pointer-events-none absolute left-1/2 top-1/2 w-[300%] max-w-none -translate-x-1/2 -translate-y-1/2 select-none sm:w-[220%]"
               style={{ aspectRatio: "2313 / 3240" }}
             />
-            <div className="relative w-[360px] max-w-full">
-              {active === "bookings" ? <InteractiveBookingMockup /> : <InteractiveTippingMockup />}
-            </div>
+            <Reveal delay={120} className="relative w-[360px] max-w-full">
+              <div key={active} className="animate-in fade-in slide-in-from-bottom-3 duration-300">
+                {active === "bookings" ? <InteractiveBookingMockup /> : <InteractiveTippingMockup />}
+              </div>
+            </Reveal>
           </div>
         </div>
       </div>
