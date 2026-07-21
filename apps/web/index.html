@@ -3,9 +3,142 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Bookmi — book me anywhere</title>
-    <meta name="description" content="Your shareable page for booking paid services in Nigeria. By Qorelly." />
+    <link rel="icon" type="image/svg+xml" href="/images/logo.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#7856FF" />
+
+    <title>Bookmi — Your bookable page, in one link</title>
+    <meta
+      name="description"
+      content="Share bookmi.co/you and let anyone book your services and pay in seconds. Payments via Monnify, withdraw to any Nigerian bank. Built for Nigeria's independent pros. By Qorelly."
+    />
+    <link rel="canonical" href="https://bookmi.co/" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph (WhatsApp, Facebook, LinkedIn, iMessage, Slack) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Bookmi" />
+    <meta property="og:locale" content="en_NG" />
+    <meta property="og:title" content="Bookmi — Your bookable page, in one link" />
+    <meta
+      property="og:description"
+      content="Share bookmi.co/you and let anyone book your services and pay in seconds. Payments via Monnify, withdraw to any Nigerian bank."
+    />
+    <meta property="og:url" content="https://bookmi.co/" />
+    <meta property="og:image" content="https://bookmi.co/images/og.jpg" />
+    <meta property="og:image:secure_url" content="https://bookmi.co/images/og.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="628" />
+    <meta property="og:image:alt" content="Bookmi — your bookable page, in one link" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Bookmi — Your bookable page, in one link" />
+    <meta
+      name="twitter:description"
+      content="Share bookmi.co/you and let anyone book your services and pay in seconds. Payments via Monnify, withdraw to any Nigerian bank."
+    />
+    <meta name="twitter:image" content="https://bookmi.co/images/og.jpg" />
+    <meta name="twitter:image:alt" content="Bookmi — your bookable page, in one link" />
+
+    <!-- Structured data -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://bookmi.co/#organization",
+            "name": "Bookmi",
+            "url": "https://bookmi.co/",
+            "logo": "https://bookmi.co/images/logo.svg",
+            "parentOrganization": {
+              "@type": "Organization",
+              "name": "Qorelly",
+              "url": "https://qorelly.com/"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://bookmi.co/#website",
+            "url": "https://bookmi.co/",
+            "name": "Bookmi",
+            "publisher": { "@id": "https://bookmi.co/#organization" }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Bookmi",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "url": "https://bookmi.co/",
+            "description": "A shareable booking page for Nigerian independent professionals. Clients book services or send tips and pay instantly via Monnify; funds withdraw to any Nigerian bank.",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "NGN" }
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Is Bookmi free to use?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Signing up and creating your page is completely free. Bookmi takes a small percentage fee only when a booking or tip payment is processed through Monnify — no monthly subscription, no hidden charges."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do I get paid?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Every payment goes straight into your Bookmi wallet, powered by Monnify. You can withdraw your balance to any Nigerian bank account at any time from your dashboard — usually within minutes."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Do my clients need to create an account to book me?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. Clients can visit your bookmi.co/you link, pick a service, choose a time, and pay — all without signing up for anything."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What payment methods are supported?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Monnify supports debit/credit cards, bank transfers, and USSD codes. Your clients can pay however is most convenient for them."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I set my own prices?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. You set fixed prices per service, or enable pay-what-you-want with a minimum floor you control. You can update your prices anytime from your dashboard."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What happens if a client doesn't pay after booking?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Payment is required upfront before a booking is confirmed. Monnify verifies the transaction via webhook before any slot is marked as taken."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I accept tips even if I don't offer scheduled services?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Absolutely. Tips and scheduled bookings are independent features. You can enable one, the other, or both."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
