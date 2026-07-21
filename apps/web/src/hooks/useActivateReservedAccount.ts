@@ -5,9 +5,11 @@ import { apiFetch } from "@/lib/api";
 /**
  * POST /api/hosts/me/wallet/activate-reserved-account
  *
- * MOCKED activation — collects the host's BVN and provisions a fabricated
- * reserved account number + bank name (no real Monnify call happens
- * server-side). See HostWalletService.activateReservedAccount.
+ * Activates the host's reserved account — collects the BVN and provisions a
+ * dedicated account number + bank name. Server-side this calls the real
+ * Monnify reserved-account API when MONNIFY_USE_RESERVED_ACCOUNT_API is on,
+ * otherwise falls back to a mocked account. See
+ * HostWalletService.activateReservedAccount.
  */
 export function useActivateReservedAccount() {
   const qc = useQueryClient();

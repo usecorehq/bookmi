@@ -97,6 +97,15 @@ class EnvVars {
   @IsOptional()
   MONNIFY_DISBURSEMENT_WALLET?: string;
 
+  /**
+   * Restricts reserved-account provisioning to a single partner bank code
+   * (e.g. Moniepoint MFB). Optional — unset requests every partner bank
+   * Monnify supports.
+   */
+  @IsString()
+  @IsOptional()
+  MONNIFY_RESERVED_ACCOUNT_BANK_CODE?: string;
+
   // ── Platform ──
   @IsInt()
   @Min(0)

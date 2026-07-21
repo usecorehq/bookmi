@@ -19,6 +19,8 @@ import type {
   PaymentProvider,
   RefundInput,
   RefundResult,
+  ReserveAccountInput,
+  ReserveAccountResult,
   VerifyResult,
 } from "./payment-provider.interface";
 
@@ -202,6 +204,10 @@ export class MonnifyProvider implements PaymentProvider {
       return parseRefundWebhook(eventType, payload, rawBody);
     }
 
+    if (eventType === "RESERVED_ACCOUNT_TRANSACTION") {
+      return parseReservedAccountWebhook(payload, rawBody);
+    }
+
     const data = payload.eventData ?? {};
     const paymentReference = data.paymentReference ?? "";
 
@@ -297,6 +303,80 @@ export class MonnifyProvider implements PaymentProvider {
       // Monnify's validate endpoint typically omits bankName — dropdown owns
       // the display name, so an empty fallback is fine.
       bankName: parsed.responseBody.bankName ?? "",
+    };
+  }
+
+  /**
+   * Provision a reserved/dedicated virtual account for a host —
+   * `POST /api/v2/bank-transfer/reserved-accounts`
+   * (https://developers.monnify.com/docs/collections/recurring-payments/reserved-accounts).
+   * Auth is the bearer token, same as every other Monnify call here. Request
+   * and response shapes below are taken directly from Monnify's docs, not
+   * inferred.
+   *
+   * `accountReference` doubles as Monnify's own upsert key for the account.
+   * Whether a retried call with the same reference returns/updates the
+   * existing reserved account rather than erroring is NOT covered by the
+   * docs snippet this was built from — smoke-test a retry against sandbox
+   * before enabling `MONNIFY_USE_RESERVED_ACCOUNT_API` in production.
+   *
+   * Money paid into the resulting account number(s) is reported later via a
+   * `RESERVED_ACCOUNT_TRANSACTION` webhook — see `parseReservedAccountWebhook`
+   * (that webhook's field names are still inferred, unlike this call).
+   */
+  async reserveAccount(input: ReserveAccountInput): Promise<ReserveAccountResult> {
+    const baseUrl = this.baseUrl();
+    const contractCode = this.requireContractCode();
+    const token = await this.getAccessToken();
+
+    const body: MonnifyReserveAccountRequest = {
+      accountReference: input.accountReference,
+      accountName: input.accountName,
+      currencyCode: input.currencyCode ?? "NGN",
+      contractCode,
+      customerEmail: input.customerEmail,
+      customerName: input.customerName,
+      bvn: input.bvn,
+      ...(input.preferredBankCodes?.length
+        ? { preferredBanks: input.preferredBankCodes }
+        : { getAllAvailableBanks: true }),
+    };
+
+    const res = await fetch(`${baseUrl}/api/v2/bank-transfer/reserved-accounts`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const parsed = (await res.json().catch(() => null)) as MonnifyReserveAccountBody | null;
+    if (!res.ok || !parsed?.requestSuccessful || !parsed.responseBody?.accounts?.length) {
+      this.logger.warn(
+        `Monnify reserve-account failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(
+        parsed?.responseMessage ?? "Monnify reserved account creation failed",
+      );
+    }
+
+    return {
+      accountReference: parsed.responseBody.accountReference ?? input.accountReference,
+      accountName: parsed.responseBody.accountName ?? input.accountName,
+      reservationReference: parsed.responseBody.reservationReference,
+      accounts: parsed.responseBody.accounts
+        .filter((a): a is { bankCode: string; bankName: string; accountNumber: string; accountName?: string } =>
+          Boolean(a?.bankCode && a?.bankName && a?.accountNumber),
+        )
+        .map((a) => ({
+          bankCode: a.bankCode,
+          bankName: a.bankName,
+          accountNumber: a.accountNumber,
+          accountName: a.accountName,
+        })),
+      raw: parsed,
     };
   }
 
@@ -620,6 +700,51 @@ function parseRefundWebhook(
   };
 }
 
+/**
+ * Parse a `RESERVED_ACCOUNT_TRANSACTION` webhook — fired when a transfer
+ * lands in a host's reserved account — into a `domain:
+ * "reserved_account_credit"` ParsedWebhook, routed by
+ * `PaymentsService.processWebhook` to `ReservedAccountWebhookService`.
+ *
+ * OPEN RISK (flagged, not verified against a live sandbox yet): the exact
+ * `eventData` field names below (particularly `product.reference` for the
+ * account reference, and `currency` vs `currencyCode`) are INFERRED from
+ * Monnify's reserved-account docs, not a captured real payload. Log the
+ * first real sandbox webhook and adjust field names here if they differ
+ * before enabling `MONNIFY_USE_RESERVED_ACCOUNT_API` in production.
+ */
+function parseReservedAccountWebhook(
+  payload: MonnifyWebhookBody,
+  rawBody: Buffer,
+): ParsedWebhook {
+  const data = (payload.eventData ?? {}) as MonnifyReservedAccountEventData;
+  const transactionReference = data.transactionReference ?? "";
+
+  const providerEventId = transactionReference
+    ? `monnify:RESERVED_ACCOUNT_TRANSACTION:${transactionReference}`
+    : `monnify:RESERVED_ACCOUNT_TRANSACTION:sha256:${createHash("sha256").update(rawBody).digest("hex")}`;
+
+  return {
+    providerEventId,
+    providerReference: data.paymentReference ?? transactionReference,
+    providerTransactionId: transactionReference,
+    domain: "reserved_account_credit",
+    accountReference: data.product?.reference,
+    status:
+      data.paymentStatus === "PAID" || data.paymentStatus === "OVERPAID" ? "success" : "failed",
+    eventName: "RESERVED_ACCOUNT_TRANSACTION",
+    amountMinor: data.amountPaid != null ? majorToMinor(data.amountPaid) : undefined,
+    currency: data.currencyCode ?? data.currency,
+    paidAt: parseMonnifyDate(data.paidOn),
+    customerCode: data.customer?.customerReference,
+    failureReason:
+      data.paymentStatus === "PAID" || data.paymentStatus === "OVERPAID"
+        ? undefined
+        : (data.paymentDescription ?? data.paymentStatus),
+    raw: payload,
+  };
+}
+
 function normalizeWebhookStatus(
   event: string,
   providerStatus: string | undefined,
@@ -842,6 +967,65 @@ interface MonnifyRefundEventData {
   refundStatus?: string;
   refundAmount?: number | string;
   refundReason?: string;
+}
+
+interface MonnifyReserveAccountRequest {
+  accountReference: string;
+  accountName: string;
+  currencyCode: string;
+  contractCode: string;
+  customerEmail: string;
+  customerName: string;
+  bvn: string;
+  getAllAvailableBanks?: boolean;
+  preferredBanks?: string[];
+}
+
+/**
+ * Confirmed from Monnify's reserved-accounts docs (not inferred) — see the
+ * `reserveAccount()` JSDoc for the source link. `responseBody` also carries
+ * `collectionChannel`, `reservedAccountType`, `status`, `createdOn`,
+ * `incomeSplitConfig`, `bvn`, `restrictPaymentSource`, none of which bookmi
+ * currently persists.
+ */
+interface MonnifyReserveAccountBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseCode?: string;
+  responseBody?: {
+    contractCode?: string;
+    accountReference?: string;
+    accountName?: string;
+    currencyCode?: string;
+    customerEmail?: string;
+    customerName?: string;
+    reservationReference?: string;
+    accounts?: Array<{
+      bankCode?: string;
+      bankName?: string;
+      accountNumber?: string;
+      accountName?: string;
+    }>;
+    status?: string;
+  };
+}
+
+/**
+ * Shape of `RESERVED_ACCOUNT_TRANSACTION` webhook `eventData`. INFERRED from
+ * Monnify's reserved-account docs — see `parseReservedAccountWebhook`'s
+ * open-risk comment. Adjust field names once a real sandbox payload is seen.
+ */
+interface MonnifyReservedAccountEventData {
+  transactionReference?: string;
+  paymentReference?: string;
+  amountPaid?: number | string;
+  paymentStatus?: string;
+  paymentDescription?: string;
+  currencyCode?: string;
+  currency?: string;
+  paidOn?: string;
+  product?: { type?: string; reference?: string };
+  customer?: { name?: string; email?: string; customerReference?: string };
 }
 
 interface MonnifyDisburseBody {

@@ -93,8 +93,19 @@ export interface ParsedWebhook {
    * "payment transaction" — the historically only domain webhooks carried.
    * `"refund"` routes `PaymentsService.processWebhook` to
    * `RefundWebhookService` instead of the payment-transaction finalize path.
+   * `"reserved_account_credit"` routes it to `ReservedAccountWebhookService`
+   * instead — a transfer landing in a host's reserved account never has a
+   * matching `payment_transactions` row.
    */
-  domain?: "refund";
+  domain?: "refund" | "reserved_account_credit";
+  /**
+   * For `domain: "reserved_account_credit"` — identifies which host's
+   * reserved account was credited. Bookmi mints this as the host's own
+   * `hostId` at reserve-account creation time (see
+   * `HostWalletService.activateReservedAccount`), so it maps straight back
+   * to a `host_wallets` row with no side-table lookup.
+   */
+  accountReference?: string;
   amountMinor?: number;
   currency?: string;
   feeMinor?: number;
@@ -179,6 +190,54 @@ export interface RefundResult {
   raw?: unknown;
 }
 
+/**
+ * Input to provision a reserved/dedicated virtual account for a host
+ * (Monnify: `POST /api/v2/bank-transfer/reserved-accounts`). Money
+ * transferred into this account by a third party lands in the merchant's
+ * collection wallet and is reconciled back to the host via a
+ * `RESERVED_ACCOUNT_TRANSACTION` webhook (see `ParsedWebhook.domain ===
+ * "reserved_account_credit"`).
+ */
+export interface ReserveAccountInput {
+  /**
+   * Bookmi's own identifier for this reserved account — must be unique per
+   * customer and stable across retries (Monnify treats it as an upsert key).
+   * `HostWalletService.activateReservedAccount` passes the host's own id.
+   */
+  accountReference: string;
+  accountName: string;
+  customerEmail: string;
+  customerName: string;
+  /** Bank Verification Number — required by Monnify's real reserved-account API. */
+  bvn: string;
+  currencyCode?: string;
+  /**
+   * Restrict the reserved account to specific partner banks (CBN/NIBSS bank
+   * codes). Omit to let Monnify provision across every partner bank it
+   * supports (`getAllAvailableBanks: true`).
+   */
+  preferredBankCodes?: string[];
+}
+
+export interface ReserveAccountResult {
+  accountReference: string;
+  accountName: string;
+  reservationReference?: string;
+  /**
+   * One entry per partner bank Monnify provisioned for this reference. Per
+   * Monnify's docs, `accountName` on each entry can be a bank-truncated
+   * variant of the top-level `accountName` (e.g. `"Test Reserved Account"` →
+   * `"Tes"`), so it's kept separate rather than assumed identical.
+   */
+  accounts: Array<{
+    bankCode: string;
+    bankName: string;
+    accountNumber: string;
+    accountName?: string;
+  }>;
+  raw: unknown;
+}
+
 export interface PaymentProvider {
   readonly code: PaymentProviderCode;
 
@@ -223,6 +282,15 @@ export interface PaymentProvider {
    * caller must check for undefined before invoking.
    */
   disburse?(input: DisburseInput): Promise<DisburseResult>;
+
+  /**
+   * Provision a reserved/dedicated virtual account for a host. Providers
+   * that don't support this (or that we haven't wired it for yet) omit it —
+   * `HostWalletService.activateReservedAccount` falls back to a mocked
+   * account when either the provider or the `MONNIFY_USE_RESERVED_ACCOUNT_API`
+   * flag is off.
+   */
+  reserveAccount?(input: ReserveAccountInput): Promise<ReserveAccountResult>;
 }
 
 export const PAYMENT_PROVIDERS = Symbol("PAYMENT_PROVIDERS");

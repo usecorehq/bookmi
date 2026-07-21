@@ -122,14 +122,14 @@ export class HostWalletController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "MOCKED — activate a reserved bank account for direct transfers into the wallet. Collects BVN and fabricates a plausible reserved-account number; no real Monnify reserved-account API call happens here. Idempotent — returns the existing wallet if already activated.",
+      "Activate a reserved bank account for direct transfers into the wallet. Collects BVN. Calls the real Monnify reserved-account API when MONNIFY_USE_RESERVED_ACCOUNT_API is on, otherwise falls back to a mocked account number. Idempotent — returns the existing wallet if already activated.",
   })
   async activateReservedAccount(
     @Body(new ZodValidationPipe(ActivateReservedAccountSchema))
     body: ActivateReservedAccountDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const wallet = await this.wallet.activateReservedAccount(user.sub, body.bvn);
+    const wallet = await this.wallet.activateReservedAccount(user.sub, body.bvn, user.email);
     return { wallet };
   }
 }

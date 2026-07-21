@@ -246,13 +246,13 @@ export const WithdrawSchema = z
   .strict();
 export class WithdrawDto extends createZodDto(WithdrawSchema) {}
 
-// ─── Reserved account activation (MOCKED) ──────────────────────────────
+// ─── Reserved account activation ───────────────────────────────────────
 
 /**
  * POST /hosts/me/wallet/activate-reserved-account — collects the host's BVN
- * and provisions a MOCKED Monnify reserved account (no real provider call;
- * see HostWalletService.activateReservedAccount). BVN is exactly 11 digits,
- * matching the real Monnify/NIBSS format.
+ * and provisions a Monnify reserved account, real or mocked depending on
+ * MONNIFY_USE_RESERVED_ACCOUNT_API (see HostWalletService.activateReservedAccount).
+ * BVN is exactly 11 digits, matching the real Monnify/NIBSS format.
  */
 export const ActivateReservedAccountSchema = z
   .object({

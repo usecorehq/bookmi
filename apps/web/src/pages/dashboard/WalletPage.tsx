@@ -759,7 +759,8 @@ function WithdrawModal({
 
 /**
  * Simple one-field modal that collects the host's BVN and activates a
- * (mocked) reserved bank account. Mirrors WithdrawModal's structure —
+ * reserved bank account (real or mocked, depending on the backend's
+ * MONNIFY_USE_RESERVED_ACCOUNT_API flag). Mirrors WithdrawModal's structure —
  * overlay + card, Escape-to-close, FormMessage for errors.
  */
 function ActivateReservedAccountModal({ onClose }: { onClose: () => void }) {

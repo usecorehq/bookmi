@@ -47,6 +47,21 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
        * `MonnifyProvider.refund()`/`parseRefundWebhook`).
        */
       useRefundApi: (env.MONNIFY_USE_REFUND_API ?? "false") === "true",
+      /**
+       * Rollout toggle for the real reserved-account API (`POST
+       * /api/v2/bank-transfer/reserved-accounts`) in
+       * `HostWalletService.activateReservedAccount()`. Defaults to `false` —
+       * every deployment keeps fabricating a mock reserved account until
+       * this is explicitly set to `true` after a sandbox smoke test.
+       */
+      useReservedAccountApi: (env.MONNIFY_USE_RESERVED_ACCOUNT_API ?? "false") === "true",
+      /**
+       * Optional single partner bank code (e.g. Moniepoint) to restrict
+       * reserved-account provisioning to. Unset requests every partner bank
+       * Monnify supports (`getAllAvailableBanks: true`) and surfaces the
+       * first one returned.
+       */
+      reservedAccountBankCode: env.MONNIFY_RESERVED_ACCOUNT_BANK_CODE || undefined,
     },
 
     platform: {

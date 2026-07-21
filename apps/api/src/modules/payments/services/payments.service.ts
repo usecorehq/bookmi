@@ -31,6 +31,7 @@ import {
 } from "../payment-reference";
 import { canTransition, isTerminal } from "./payment-state";
 import { RefundWebhookService } from "./refund-webhook.service";
+import { ReservedAccountWebhookService } from "./reserved-account-webhook.service";
 
 export interface InitiateInput {
   purposeType: string;
@@ -72,6 +73,7 @@ export class PaymentsService {
     // @Optional() preserves the existing 3-arg constructor call in
     // payments-flow.int-spec.ts.
     @Optional() private readonly refundWebhooks?: RefundWebhookService,
+    @Optional() private readonly reservedAccountWebhooks?: ReservedAccountWebhookService,
   ) {}
 
   /** This deployment's environment — encoded into every reference it mints. */
@@ -314,6 +316,24 @@ export class PaymentsService {
         return { handled: false, reason: "refund webhooks not wired" };
       }
       const result = await this.refundWebhooks.reconcile(parsed);
+      await this.markWebhookProcessed(webhookRow!.id, result.handled ? null : (result.reason ?? "unhandled"));
+      return result;
+    }
+
+    // Reserved-account-credit events (RESERVED_ACCOUNT_TRANSACTION) never
+    // touch a payment_transactions row either — route them to
+    // ReservedAccountWebhookService. Only reachable once a host has a real
+    // reserved account (MONNIFY_USE_RESERVED_ACCOUNT_API=true); mocked
+    // reserved accounts never receive a real transfer.
+    if (parsed.domain === "reserved_account_credit") {
+      if (!this.reservedAccountWebhooks) {
+        await this.markWebhookProcessed(
+          webhookRow!.id,
+          "reserved account webhook received but ReservedAccountWebhookService is not wired",
+        );
+        return { handled: false, reason: "reserved account webhooks not wired" };
+      }
+      const result = await this.reservedAccountWebhooks.reconcile(parsed);
       await this.markWebhookProcessed(webhookRow!.id, result.handled ? null : (result.reason ?? "unhandled"));
       return result;
     }
