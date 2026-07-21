@@ -37,7 +37,7 @@ export function SplitAuthLayout({
   return (
     <div className="relative min-h-screen grid lg:grid-cols-2">
       <div className="flex flex-col items-center justify-center bg-white px-6 py-12">
-        <div className="w-full max-w-md">{children}</div>
+        <div className="anim-fade-up w-full max-w-md">{children}</div>
       </div>
       <HeroSlider card={card} />
 
@@ -108,7 +108,10 @@ function ProfileCard({ card }: { card?: ProfileCardContent }) {
   const LocationIcon = isLink ? Link2 : MapPin;
 
   return (
-    <div className="absolute bottom-6 right-6 z-10 w-60 overflow-hidden rounded-3xl shadow-medium">
+    <div
+      className="anim-fade-up absolute bottom-6 right-6 z-10 w-60 overflow-hidden rounded-3xl shadow-medium"
+      style={{ "--anim-delay": "200ms" } as React.CSSProperties}
+    >
       <div className="relative aspect-[3/4]">
         <img
           src={image}
