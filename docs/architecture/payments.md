@@ -43,10 +43,12 @@ interface PaymentProvider {
   verifyWebhookSignature(rawBody: Buffer, headers): boolean;
   parseWebhook(rawBody: Buffer, headers): ParsedWebhook;
 
-  refund?(providerReference, opts?): Promise<void>;
+  refund?(input: RefundInput): Promise<RefundResult>;
   chargeAuthorization?(input): Promise<VerifyResult>;
 }
 ```
+
+`RefundInput`/`RefundResult` back the dedicated refund flow — see [Payouts, refunds, and the wallet ledger](payouts.md#refunds).
 
 All amounts are in **minor units** (kobo). All statuses come back **normalized** to the six-value bookmi enum. The orchestrator never sees provider dialect.
 
@@ -81,7 +83,7 @@ A `PaymentPurposeHandler` (defined at `apps/api/src/modules/payments/purposes/pu
 
 - **`authorizeInitiate`** — is this initiator allowed to pay for this domain row? (BookingCheckoutHandler: does the service exist and is it active?)
 - **`resolveInitiate`** — server-side price lock. The client-supplied amount is only trusted for free-form purposes. BookingCheckoutHandler sums `services.priceKobo` across `serviceIds`; any pay-what-you-want service makes the whole booking PWYW with the sum as the floor.
-- **`onSuccess`** — the side effects. BookingCheckoutHandler flips the booking to `confirmed`, computes `platformFeeKobo`, credits `host_wallets.balance_kobo` by the net, and fires two emails (best-effort, wrapped in try/catch).
+- **`onSuccess`** — the side effects. BookingCheckoutHandler flips the booking to `confirmed`, computes `platformFeeKobo`, and credits the host wallet by the net — via `WalletLedgerService.appendEntry` (a `credit`, `sourceType: "payment_transaction"`), not a direct `UPDATE host_wallets`, so the credit lands in the same hash-chained ledger that payouts debit from. See [The wallet ledger](wallet-ledger.md). Then fires two emails (best-effort, wrapped in try/catch).
 - **`onFailure`** — mark the booking `failed`; no wallet mutation.
 - **`onUnmatchedProviderEvent`** *(optional)* — handle events with no matching transaction (e.g. subscription-lifecycle events keyed by authorization). Every handler gets a chance to claim these; first-to-say-yes wins.
 
@@ -145,3 +147,5 @@ Providers give you ONE sandbox webhook URL per integration mode. When multiple e
 
 - [Booking flow](booking-flow.md) — how the customer wizard talks to this
 - [Emails](emails.md) — what `onSuccess` fires
+- [The wallet ledger](wallet-ledger.md) — where the wallet credit actually lands
+- [Payouts, refunds, and the wallet ledger](payouts.md) — how money later moves back out

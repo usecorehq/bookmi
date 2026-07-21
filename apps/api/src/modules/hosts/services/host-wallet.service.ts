@@ -6,6 +6,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { SUPABASE_DB, type SupabaseDb } from "../../../drizzle/drizzle.module";
 import {
@@ -54,6 +55,7 @@ export class HostWalletService {
     private readonly registry: PaymentProviderRegistry,
     private readonly security: SecurityService,
     private readonly ledger: WalletLedgerService,
+    private readonly config: ConfigService,
   ) {}
 
   async get(userId: string): Promise<WalletView> {
@@ -276,6 +278,17 @@ export class HostWalletService {
           "Withdrawal state indeterminate — retry with a fresh idempotency key.",
         );
       }
+      // An idempotency key dedupes retries of the SAME request — it must
+      // never silently paper over a materially different one (e.g. the host
+      // corrected the amount after a failed attempt and resubmitted under
+      // the same stale key). Surfacing the wrong cached row's amount/status
+      // as if it belonged to this request is exactly the confusing-error
+      // bug this guards against.
+      if (cached.amountKobo !== input.amountKobo) {
+        throw new BadRequestException(
+          "This idempotency key was already used for a different withdrawal amount — use a fresh idempotency key to submit a new withdrawal.",
+        );
+      }
       return { payout: cached, cached: true };
     }
 
@@ -380,6 +393,130 @@ export class HostWalletService {
     }
   }
 
+  // ─── reserved account activation ─────────────────────────────────
+
+  /**
+   * Provisions a reserved/dedicated virtual account so third parties can pay
+   * a host directly by bank transfer. Behind the `MONNIFY_USE_RESERVED_ACCOUNT_API`
+   * flag (`monnify.useReservedAccountApi`):
+   *
+   *  - **on** — calls `provider.reserveAccount()` (real Monnify
+   *    `POST /api/v2/bank-transfer/reserved-accounts`). Money that later lands
+   *    in the account is reconciled into `wallet_ledger` by
+   *    `ReservedAccountWebhookService` via the `RESERVED_ACCOUNT_TRANSACTION`
+   *    webhook.
+   *  - **off** (default) — fabricates a plausible reserved-account response
+   *    so the product flow (pending-activation card → BVN form → dedicated
+   *    account number) still demos end-to-end without live Monnify
+   *    credentials. Nothing ever lands in a mock account, so no webhook
+   *    reconciliation applies to it.
+   *
+   * Idempotent: if the host already has a reserved account, it's returned
+   * as-is rather than re-provisioning (and the BVN is not overwritten).
+   *
+   * BVN is sensitive NDPR-regulated PII — it is persisted but NEVER logged.
+   */
+  async activateReservedAccount(
+    userId: string,
+    bvn: string,
+    email?: string,
+  ): Promise<HostWallet> {
+    const host = await this.requireHost(userId);
+
+    const [existing] = await this.db
+      .select()
+      .from(hostWallets)
+      .where(eq(hostWallets.hostId, host.id))
+      .limit(1);
+
+    if (existing?.reservedAccountNumber) {
+      // Already activated — idempotent no-op.
+      return existing;
+    }
+
+    const useRealApi = this.config.get<boolean>("monnify.useReservedAccountApi") ?? false;
+    const patch = useRealApi
+      ? await this.reserveRealAccount(host.id, bvn, email)
+      : mockReservedAccountPatch(bvn);
+
+    const [row] = await this.db
+      .insert(hostWallets)
+      .values({ hostId: host.id, ...patch })
+      .onConflictDoUpdate({ target: hostWallets.hostId, set: patch })
+      .returning();
+
+    // Never log the raw BVN.
+    this.logger.log(
+      `${useRealApi ? "Monnify" : "Mock"} reserved account provisioned for host ${host.id}`,
+    );
+
+    if (row) return row;
+    const [again] = await this.db
+      .select()
+      .from(hostWallets)
+      .where(eq(hostWallets.hostId, host.id))
+      .limit(1);
+    return again!;
+  }
+
+  private async reserveRealAccount(
+    hostId: string,
+    bvn: string,
+    email: string | undefined,
+  ): Promise<{
+    bvn: string;
+    reservedAccountNumber: string;
+    reservedBankName: string;
+    monnifyWalletReference: string;
+    updatedAt: Date;
+  }> {
+    if (!email) {
+      throw new BadRequestException(
+        "An email address is required to activate a reserved account.",
+      );
+    }
+
+    const provider = this.registry.get("monnify");
+    if (!provider.reserveAccount) {
+      throw new ServiceUnavailableException(
+        "Reserved accounts unavailable — provider misconfigured.",
+      );
+    }
+
+    const [profile] = await this.db
+      .select({ displayName: hostProfiles.displayName })
+      .from(hostProfiles)
+      .where(eq(hostProfiles.id, hostId))
+      .limit(1);
+    const accountName = profile?.displayName ?? "Bookmi Host";
+    const preferredBankCode = this.config.get<string>("monnify.reservedAccountBankCode");
+
+    // accountReference = hostId — deterministic, unique, and lets
+    // ReservedAccountWebhookService map a credit straight back to this host
+    // with no side-table lookup.
+    const result = await provider.reserveAccount({
+      accountReference: hostId,
+      accountName,
+      customerEmail: email,
+      customerName: accountName,
+      bvn,
+      ...(preferredBankCode ? { preferredBankCodes: [preferredBankCode] } : {}),
+    });
+
+    const primary = result.accounts[0];
+    if (!primary) {
+      throw new ServiceUnavailableException("Monnify returned no reserved account details.");
+    }
+
+    return {
+      bvn,
+      reservedAccountNumber: primary.accountNumber,
+      reservedBankName: primary.bankName,
+      monnifyWalletReference: result.accountReference,
+      updatedAt: new Date(),
+    };
+  }
+
   private async markPayoutFailed(payoutId: string, reason: string): Promise<void> {
     const trimmed = reason.slice(0, 500);
     await this.db
@@ -424,4 +561,26 @@ export class HostWalletService {
     }
     return provider.resolveBankAccount(input);
   }
+}
+
+/**
+ * MOCK — fabricates a plausible 10-digit account number + reference for the
+ * `MONNIFY_USE_RESERVED_ACCOUNT_API=false` (default) path. Nothing ever lands
+ * in this account; it exists only so the product flow demos end-to-end
+ * without live Monnify credentials.
+ */
+function mockReservedAccountPatch(bvn: string): {
+  bvn: string;
+  reservedAccountNumber: string;
+  reservedBankName: string;
+  monnifyWalletReference: string;
+  updatedAt: Date;
+} {
+  return {
+    bvn,
+    reservedAccountNumber: String(1_000_000_000 + Math.floor(Math.random() * 9_000_000_000)),
+    reservedBankName: "Moniepoint MFB", // Monnify's documented default reserved-account partner bank.
+    monnifyWalletReference: `mock_reserved_${crypto.randomUUID()}`,
+    updatedAt: new Date(),
+  };
 }

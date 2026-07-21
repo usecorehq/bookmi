@@ -20,7 +20,7 @@
 | Auth | Supabase Auth (email + OAuth). Backend verifies JWTs (HS256 or ES256 JWKS), with `audience: authenticated` enforced |
 | Payments | Provider-agnostic `PaymentProvider` interface. Monnify adapter today; Paystack/Flutterwave slot in later without touching the orchestrator |
 | Emails | React Email templates + `@nestjs-modules/mailer` (SMTP). Mailhog in dev, Resend/SES/Mailgun via SMTP relay in prod. Live preview at `pnpm email:dev` |
-| Money accounting | Three-table pattern: `payment_transactions` (state machine), `payment_events` (append-only audit), `payment_webhook_events` (edge-level dedup) |
+| Money accounting | Three-table pattern for payments-in: `payment_transactions` (state machine), `payment_events` (append-only audit), `payment_webhook_events` (edge-level dedup). Wallet balance itself is backed by `wallet_ledger`, an immutable hash-chained ledger both booking credits and host payouts/refunds write through |
 
 ---
 
@@ -97,6 +97,8 @@ Everything worth understanding lives under [`docs/`](docs/README.md). The critic
 ### Architecture — why we built it this way
 
 - **[Payment provider abstraction](docs/architecture/payments.md)** — Interface, registry, state machine, purpose handler pattern. Adding a new provider is one file.
+- **[The wallet ledger](docs/architecture/wallet-ledger.md)** — The hash-chained, tamper-evident table backing every wallet balance change.
+- **[Payouts and refunds](docs/architecture/payouts.md)** — OTP-gated host withdrawals and customer refunds, both writing through the ledger above.
 - **[Email sending](docs/architecture/emails.md)** — React Email templates, provider abstraction, preview server, why we send inline (for now) and the queue upgrade path.
 - **[Booking flow, end-to-end](docs/architecture/booking-flow.md)** — Full sequence diagram from signup through paid booking, including how we handle payment races, popup closures, and webhook lag.
 
@@ -143,4 +145,4 @@ pnpm --filter @bookmi/web build
 
 ## License
 
-Private (Qorelly).
+Proprietary (Qorelly) — see [LICENSE.md](LICENSE.md). Non-commercial reading and hackathon-review use permitted; everything else is reserved. Maintainers and contact info are in the license file.

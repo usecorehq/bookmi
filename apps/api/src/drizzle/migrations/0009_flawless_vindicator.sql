@@ -1,0 +1,11 @@
+-- Intentional no-op. drizzle-kit generated this migration by diffing
+-- schema.ts against the 0006 snapshot (0007_payment_transaction_provider_id
+-- and 0008_host_wallet_bvn were hand-written without regenerating a
+-- snapshot), so it re-emitted ALTER TABLE statements for two columns those
+-- migrations already added:
+--   ALTER TABLE "bookmi"."host_wallets" ADD COLUMN "bvn" text;
+--   ALTER TABLE "bookmi"."payment_transactions" ADD COLUMN "provider_transaction_id" text;
+-- Running them again would fail with "column already exists" on any
+-- database that already applied 0007+0008. meta/0009_snapshot.json is still
+-- correct (it captures the same current schema.ts state 0007+0008 already
+-- brought the database to) — only this file's SQL was redundant.

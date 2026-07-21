@@ -83,7 +83,17 @@ export const paymentTransactions = bookmi.table(
     reference: text("reference").notNull().unique(),
 
     providerCode: text("provider_code").notNull(),
+    /** Bookmi's OWN minted reference, echoed back by `provider.initialize()`. */
     providerReference: text("provider_reference"),
+    /**
+     * The provider's OWN internal transaction id (Monnify: `transactionReference`),
+     * distinct from `providerReference` above. Populated by `verify()` /
+     * `parseWebhook()` on success; required to call Monnify's dedicated
+     * refund API, which addresses transactions by its own reference.
+     * Nullable — rows written before this column existed are backfilled JIT
+     * by `HostBookingsService.refundBooking()` the first time they're refunded.
+     */
+    providerTransactionId: text("provider_transaction_id"),
 
     status: text("status").notNull().default("pending"),
     // pending | processing | success | failed | abandoned | reversed
@@ -236,6 +246,16 @@ export const hostWallets = bookmi.table("host_wallets", {
   monnifyWalletReference: text("monnify_wallet_reference"),
   reservedAccountNumber: text("reserved_account_number"),
   reservedBankName: text("reserved_bank_name"),
+  /**
+   * Bank Verification Number — required by Monnify's real reserved-account
+   * API. Sensitive NDPR-regulated PII: never log the raw value. Feeds
+   * HostWalletService.activateReservedAccount — passed straight through to
+   * Monnify when MONNIFY_USE_RESERVED_ACCOUNT_API is on; otherwise only
+   * stored alongside a fabricated mock reserved account. Bookmi itself never
+   * validates the BVN/NIBSS format beyond the 11-digit shape check in
+   * ActivateReservedAccountSchema.
+   */
+  bvn: text("bvn"),
   balanceKobo: bigint("balance_kobo", { mode: "number" }).notNull().default(0),
   bankCode: text("bank_code"),
   bankAccountNumber: text("bank_account_number"),
@@ -469,10 +489,13 @@ export const refunds = bookmi.table(
  * status flip does NOT invalidate the chain; every other column is covered.
  *
  * `source_type` names the domain table that produced the entry
- * (`payment_transaction` | `payout` | `refund`), `source_id` links to that
- * row's uuid, and `source_mode` describes the business intent
- * (`booking` | `tip` | `withdrawal` | `refund`). Both together answer
- * "what caused this ₦ delta?" without a join.
+ * (`payment_transaction` | `payout` | `refund` | `reserved_account`),
+ * `source_id` links to that row's uuid (null for `reserved_account` — a
+ * reserved-account credit has no domain row of its own, just the provider's
+ * transaction reference in the entry's memo), and `source_mode` describes
+ * the business intent (`booking` | `tip` | `withdrawal` | `refund` |
+ * `wallet_funding`). Both together answer "what caused this ₦ delta?"
+ * without a join.
  */
 export const walletLedger = bookmi.table(
   "wallet_ledger",
@@ -486,9 +509,9 @@ export const walletLedger = bookmi.table(
     // 'credit' | 'debit'
     sourceId: uuid("source_id"),
     sourceType: text("source_type").notNull(),
-    // 'payment_transaction' | 'payout' | 'refund'
+    // 'payment_transaction' | 'payout' | 'refund' | 'reserved_account'
     sourceMode: text("source_mode").notNull(),
-    // 'booking' | 'tip' | 'withdrawal' | 'refund'
+    // 'booking' | 'tip' | 'withdrawal' | 'refund' | 'wallet_funding'
     balanceBeforeKobo: bigint("balance_before_kobo", { mode: "number" }).notNull(),
     balanceAfterKobo: bigint("balance_after_kobo", { mode: "number" }).notNull(),
     status: text("status").notNull().default("success"),
@@ -559,8 +582,8 @@ export type WalletLedgerEntry = typeof walletLedger.$inferSelect;
 export type NewWalletLedgerEntry = typeof walletLedger.$inferInsert;
 
 export type LedgerEntryType = "credit" | "debit";
-export type LedgerSourceType = "payment_transaction" | "payout" | "refund";
-export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund";
+export type LedgerSourceType = "payment_transaction" | "payout" | "refund" | "reserved_account";
+export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund" | "wallet_funding";
 export type LedgerEntryStatus = "pending" | "success" | "failed" | "cancelled";
 
 export type RefundStatus = "processing" | "success" | "failed";
