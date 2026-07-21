@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /auth/
+Disallow: /onboarding
+
+Sitemap: https://bookmi.co/sitemap.xml
