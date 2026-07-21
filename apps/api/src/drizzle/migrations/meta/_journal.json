@@ -64,6 +64,13 @@
       "when": 1784512383001,
       "tag": "0008_host_wallet_bvn",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784642262682,
+      "tag": "0009_flawless_vindicator",
+      "breakpoints": true
     }
   ]
 }
