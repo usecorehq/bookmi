@@ -7,6 +7,8 @@ Everything about how Bookmi is built and how to run/deploy it.
 Why we made the choices we made. Read these when you want to change something and need to know what's load-bearing.
 
 - **[Payments](architecture/payments.md)** — Provider-agnostic `PaymentProvider` interface, registry, state machine, purpose-handler pattern. Adding a new provider is one file.
+- **[The wallet ledger](architecture/wallet-ledger.md)** — The hash-chained, tamper-evident table every wallet balance change writes through.
+- **[Payouts and refunds](architecture/payouts.md)** — Host withdrawals and customer refunds — both write to the wallet ledger above.
 - **[Emails](architecture/emails.md)** — React Email templates + provider abstraction, preview server, why we send inline today, upgrade path to a queue.
 - **[Booking flow](architecture/booking-flow.md)** — End-to-end sequence from signup through settled booking, including race handling, popup cancels, and webhook lag.
 
