@@ -276,6 +276,17 @@ export class HostWalletService {
           "Withdrawal state indeterminate — retry with a fresh idempotency key.",
         );
       }
+      // An idempotency key dedupes retries of the SAME request — it must
+      // never silently paper over a materially different one (e.g. the host
+      // corrected the amount after a failed attempt and resubmitted under
+      // the same stale key). Surfacing the wrong cached row's amount/status
+      // as if it belonged to this request is exactly the confusing-error
+      // bug this guards against.
+      if (cached.amountKobo !== input.amountKobo) {
+        throw new BadRequestException(
+          "This idempotency key was already used for a different withdrawal amount — use a fresh idempotency key to submit a new withdrawal.",
+        );
+      }
       return { payout: cached, cached: true };
     }
 
@@ -378,6 +389,69 @@ export class HostWalletService {
       await this.markPayoutFailed(inserted.id, reason);
       throw err;
     }
+  }
+
+  // ─── reserved account activation (MOCKED) ────────────────────────
+
+  /**
+   * MOCK — no real Monnify API call happens here.
+   *
+   * Real Monnify reserved accounts (`POST /api/v2/bank-transfer/reserved-accounts`)
+   * require a verified BVN/NIN per customer — actual KYC we don't do today.
+   * This fabricates a plausible reserved-account response so the product
+   * flow (pending-activation card → BVN form → dedicated account number)
+   * can be demoed end-to-end. Swapping this for a real provider call later
+   * only touches this method.
+   *
+   * Idempotent: if the host already has a reserved account, it's returned
+   * as-is rather than re-provisioning (and the BVN is not overwritten).
+   *
+   * BVN is sensitive NDPR-regulated PII — it is persisted but NEVER logged.
+   */
+  async activateReservedAccount(userId: string, bvn: string): Promise<HostWallet> {
+    const host = await this.requireHost(userId);
+
+    const [existing] = await this.db
+      .select()
+      .from(hostWallets)
+      .where(eq(hostWallets.hostId, host.id))
+      .limit(1);
+
+    if (existing?.reservedAccountNumber) {
+      // Already activated — idempotent no-op.
+      return existing;
+    }
+
+    // MOCK — fabricate a plausible 10-digit account number + reference.
+    // Real integration would call provider.reserveAccount()-equivalent here.
+    const mockAccountNumber = String(1_000_000_000 + Math.floor(Math.random() * 9_000_000_000));
+    const mockReservedBankName = "Moniepoint MFB"; // Monnify's documented default reserved-account partner bank.
+    const mockWalletReference = `mock_reserved_${crypto.randomUUID()}`;
+
+    const patch = {
+      bvn,
+      reservedAccountNumber: mockAccountNumber,
+      reservedBankName: mockReservedBankName,
+      monnifyWalletReference: mockWalletReference,
+      updatedAt: new Date(),
+    };
+
+    const [row] = await this.db
+      .insert(hostWallets)
+      .values({ hostId: host.id, ...patch })
+      .onConflictDoUpdate({ target: hostWallets.hostId, set: patch })
+      .returning();
+
+    // Never log the raw BVN — log only that a mock reserved account was provisioned.
+    this.logger.log(`Mock reserved account provisioned for host ${host.id}`);
+
+    if (row) return row;
+    const [again] = await this.db
+      .select()
+      .from(hostWallets)
+      .where(eq(hostWallets.hostId, host.id))
+      .limit(1);
+    return again!;
   }
 
   private async markPayoutFailed(payoutId: string, reason: string): Promise<void> {

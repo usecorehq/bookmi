@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   AlertCircle,
   Loader2,
+  Landmark,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +19,7 @@ import { useHostWallet, type WalletView } from "@/hooks/useHostWallet";
 import { useBanks } from "@/hooks/useBanks";
 import { useRequestOtp } from "@/hooks/useSecurityOtp";
 import { useWithdraw } from "@/hooks/useWithdraw";
+import { useActivateReservedAccount } from "@/hooks/useActivateReservedAccount";
 import { FormMessage } from "@/components/ui/FormMessage";
 import { formatNaira } from "@/lib/utils";
 import type { HostWallet, Payout } from "@bookmi/shared-types";
@@ -25,6 +27,7 @@ import type { HostWallet, Payout } from "@bookmi/shared-types";
 export default function WalletPage() {
   const walletQ = useHostWallet();
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [activateOpen, setActivateOpen] = useState(false);
 
   return (
     <div>
@@ -41,6 +44,7 @@ export default function WalletPage() {
         <WalletContent
           data={walletQ.data}
           onWithdraw={() => setWithdrawOpen(true)}
+          onActivateReservedAccount={() => setActivateOpen(true)}
         />
       )}
 
@@ -50,6 +54,10 @@ export default function WalletPage() {
           onClose={() => setWithdrawOpen(false)}
         />
       )}
+
+      {activateOpen && (
+        <ActivateReservedAccountModal onClose={() => setActivateOpen(false)} />
+      )}
     </div>
   );
 }
@@ -57,9 +65,11 @@ export default function WalletPage() {
 function WalletContent({
   data,
   onWithdraw,
+  onActivateReservedAccount,
 }: {
   data: WalletView;
   onWithdraw: () => void;
+  onActivateReservedAccount: () => void;
 }) {
   const { wallet, recentBookings, recentPayouts } = data;
 
@@ -111,11 +121,13 @@ function WalletContent({
       </div>
 
       {/* Reserved account */}
-      {wallet.reservedAccountNumber && (
+      {wallet.reservedAccountNumber ? (
         <ReservedAccountCard
           accountNumber={wallet.reservedAccountNumber}
           bankName={wallet.reservedBankName ?? "Monnify"}
         />
+      ) : (
+        <PendingActivationCard onActivate={onActivateReservedAccount} />
       )}
 
       {/* Payout account */}
@@ -202,6 +214,32 @@ function ReservedAccountCard({
           )}
         </button>
       </div>
+    </div>
+  );
+}
+
+function PendingActivationCard({ onActivate }: { onActivate: () => void }) {
+  return (
+    <div className="card p-6 mb-6 flex flex-wrap items-start justify-between gap-4">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="p-2 bg-primary-light text-primary shrink-0">
+          <Landmark className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold">Get a reserved account</h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+            Get a dedicated bank account number — customers can transfer directly to fund your
+            wallet, no popup needed.
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onActivate}
+        className="btn-primary shrink-0"
+      >
+        Activate
+      </button>
     </div>
   );
 }
@@ -384,9 +422,14 @@ function WithdrawModal({
     [banks, wallet.bankCode],
   );
 
-  // One idempotency key per open — a retry with the same key hits the
-  // cached ledger row instead of a second disbursement.
-  const idempotencyKey = useMemo(() => crypto.randomUUID(), []);
+  // One idempotency key per attempt — a retry with the same key hits the
+  // cached ledger row instead of a second disbursement. Regenerated when the
+  // host goes back to "Change amount" after a failed confirm (see below), so
+  // a corrected resubmission can't collide with the stale key a prior failed
+  // attempt already claimed.
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() =>
+    crypto.randomUUID(),
+  );
 
   const [step, setStep] = useState<"amount" | "otp">("amount");
   const [amount, setAmount] = useState("");
@@ -680,6 +723,13 @@ function WithdrawModal({
                 onClick={() => {
                   setStep("amount");
                   setOtpError(null);
+                  // Fresh key — see the comment where idempotencyKey is
+                  // declared. Otherwise a corrected resubmission (e.g. a
+                  // lower amount after an insufficient-balance failure)
+                  // collides with the previous attempt's claimed key and
+                  // surfaces its stale failure reason instead of actually
+                  // retrying.
+                  setIdempotencyKey(crypto.randomUUID());
                 }}
                 disabled={withdrawMutation.isPending}
                 className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
@@ -702,6 +752,125 @@ function WithdrawModal({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Simple one-field modal that collects the host's BVN and activates a
+ * (mocked) reserved bank account. Mirrors WithdrawModal's structure —
+ * overlay + card, Escape-to-close, FormMessage for errors.
+ */
+function ActivateReservedAccountModal({ onClose }: { onClose: () => void }) {
+  const activateMutation = useActivateReservedAccount();
+  const [bvn, setBvn] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [onClose]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const isValidBvn = /^\d{11}$/.test(bvn);
+
+  const handleSubmit = async () => {
+    setError(null);
+    if (!isValidBvn) {
+      setError("Enter your 11-digit BVN.");
+      return;
+    }
+    try {
+      await activateMutation.mutateAsync({ bvn });
+      toast.success("Reserved account activated");
+      onClose();
+    } catch (err) {
+      setError(readError(err));
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="p-6 border-b border-gray-200 flex items-start justify-between">
+          <div>
+            <h2 className="text-xl font-semibold">Activate reserved account</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              We need your BVN to set up a dedicated account number for direct transfers.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">BVN</label>
+            <input
+              ref={inputRef}
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              className="input-field font-mono tracking-wider"
+              value={bvn}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                setBvn(digits);
+                setError(null);
+              }}
+              placeholder="12345678901"
+              maxLength={11}
+              disabled={activateMutation.isPending}
+            />
+            <p className="text-xs text-muted-foreground mt-1.5">
+              11 digits. Used only to set up your reserved account for this demo.
+            </p>
+          </div>
+
+          {error && <FormMessage variant="error" message={error} />}
+        </div>
+
+        <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={activateMutation.isPending}
+            className="btn-secondary"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!isValidBvn || activateMutation.isPending}
+            className="btn-primary"
+          >
+            {activateMutation.isPending && (
+              <Loader2 className="w-4 h-4 mr-2 inline animate-spin" />
+            )}
+            Activate
+          </button>
+        </div>
       </div>
     </div>
   );

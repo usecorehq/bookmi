@@ -17,6 +17,8 @@ import {
 } from "../../../common/decorators/current-user.decorator";
 import { ZodValidationPipe } from "../../../common/pipes/zod-validation.pipe";
 import {
+  ActivateReservedAccountDto,
+  ActivateReservedAccountSchema,
   SavePayoutAccountDto,
   SavePayoutAccountSchema,
   VerifyBankAccountDto,
@@ -114,5 +116,20 @@ export class HostWalletController {
       res.status(HttpStatus.ACCEPTED);
     }
     return { payout: result.payout };
+  }
+
+  @Post("activate-reserved-account")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "MOCKED — activate a reserved bank account for direct transfers into the wallet. Collects BVN and fabricates a plausible reserved-account number; no real Monnify reserved-account API call happens here. Idempotent — returns the existing wallet if already activated.",
+  })
+  async activateReservedAccount(
+    @Body(new ZodValidationPipe(ActivateReservedAccountSchema))
+    body: ActivateReservedAccountDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const wallet = await this.wallet.activateReservedAccount(user.sub, body.bvn);
+    return { wallet };
   }
 }
