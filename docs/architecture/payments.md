@@ -1,5 +1,7 @@
 # Payments — provider-agnostic architecture
 
+> Diagrams: [payment lifecycle state machine](../diagrams/images/payment-lifecycle-state.svg) · [initiate/verify/webhook/finalize sequence](../diagrams/images/payment-lifecycle-sequence.svg)
+
 Bookmi processes money through a **provider abstraction**. Nothing in the orchestration layer knows Monnify exists. Adding Paystack, Flutterwave, or Stripe later is one file per provider plus a row in a routing table — the state machine, audit trail, and webhook handling stay identical.
 
 ## The three-table pattern

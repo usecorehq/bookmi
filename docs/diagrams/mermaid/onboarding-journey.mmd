@@ -1,0 +1,28 @@
+%%{init: {"theme": "neutral"} }%%
+flowchart TD
+    Start([Visitor lands on Bookmi]) --> Choice{Sign up method}
+    Choice -- email --> EmailSignup[Enter email + password]
+    Choice -- OAuth --> OAuth[OAuth provider redirect]
+
+    EmailSignup --> OTP[Verify email OTP]
+    OAuth --> Callback["/auth/callback (Supabase PKCE)"]
+    Callback --> Session[Session established]
+    OTP --> Session
+
+    Session --> Gate{"host_profiles row<br/>exists? (RequireAuth)"}
+    Gate -- no --> Wizard[Onboarding wizard]
+    Gate -- yes --> Dashboard
+
+    subgraph Wizard [Onboarding wizard - single screen]
+        direction TB
+        W1[Enter display name] --> W2[Auto-generated slug<br/>editable, live availability check]
+        W2 --> W3[Upload avatar<br/>Cloudinary, optional]
+        W3 --> W4["POST /hosts/me/profile"]
+    end
+
+    W4 --> Dashboard[Redirect to dashboard]
+    Dashboard --> FirstService[Add first service<br/>booking or tip type]
+    FirstService --> Share[Share storefront link]
+    Share --> PayoutLater["(later, opt-in from<br/>Profile > Payout section)<br/>add bank account +<br/>BVN / reserved account"]
+
+    style Wizard fill:#f5f5f5,stroke:#999

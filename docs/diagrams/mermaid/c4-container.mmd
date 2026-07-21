@@ -1,0 +1,40 @@
+%%{init: {"theme": "neutral"} }%%
+flowchart TB
+    host["<b>Host (Creator)</b><br/><i>[Person]</i>"]
+    customer["<b>Customer (Audience)</b><br/><i>[Person]</i>"]
+
+    supabase["<b>Supabase Auth</b><br/><i>[External System]</i><br/>JWT issuance, OAuth, email OTP"]
+    monnify["<b>Monnify</b><br/><i>[External System]</i><br/>Payments PSP"]
+    smtp["<b>SMTP Provider</b><br/><i>[External System]</i><br/>Mailhog in dev; Resend/SES/<br/>Mailgun in prod"]
+    cloudinary["<b>Cloudinary</b><br/><i>[External System]</i><br/>Avatar image hosting"]
+
+    subgraph bookmi[" Bookmi "]
+        direction TB
+        web["<b>Web SPA</b><br/><i>[Container: Vite + React 18]</i><br/>Host dashboard (auth, onboarding,<br/>services, bookings, wallet) and public<br/>storefront/checkout pages. Static site."]
+        api["<b>API</b><br/><i>[Container: NestJS 11 / Express]</i><br/>Auth guard, host/public/payments<br/>modules. REST JSON. Verifies<br/>Supabase JWTs; webhooks HMAC-verified."]
+        db[("<b>Postgres</b><br/><i>[Container: bookmi schema]</i><br/>Supabase-hosted, Drizzle ORM.<br/>host_profiles, bookings,<br/>payment_transactions, wallet_ledger...")]
+        redis["<b>Redis / BullMQ</b><br/><i>[Container: Redis 7]</i><br/>Backs the email send queue<br/>(and future async job queues)."]
+    end
+
+    host -- "Uses [HTTPS]" --> web
+    customer -- "Uses, no login [HTTPS]" --> web
+    host -- "Uploads avatar directly [HTTPS]" --> cloudinary
+
+    web -- "Calls [HTTPS/REST+JSON,<br/>Bearer JWT]" --> api
+    api -- "Reads/writes [Postgres wire]" --> db
+    api -- "Enqueues/consumes email<br/>jobs [Redis protocol]" --> redis
+    api -- "Verifies JWT [HTTPS/JWKS]" --> supabase
+    api -- "Initiate/verify payment,<br/>disburse, reserve account [HTTPS]" --> monnify
+    monnify -- "Payment/refund/reserved-account<br/>webhooks [HTTPS, HMAC, raw body]" --> api
+    redis -- "Worker sends queued<br/>email [SMTP]" --> smtp
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef container fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999999,stroke:#6b6b6b,color:#fff
+    classDef boundary fill:#ffffff,stroke:#999999,color:#333,stroke-dasharray: 4 3
+
+    class host,customer person
+    class web,api,redis container
+    class db container
+    class supabase,monnify,smtp,cloudinary external
+    class bookmi boundary

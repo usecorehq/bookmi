@@ -1,0 +1,55 @@
+%%{init: {"theme": "neutral"} }%%
+sequenceDiagram
+    autonumber
+    actor Customer
+    participant Web as Web SPA<br/>(public storefront)
+    participant Pub as PublicCheckoutService
+    participant Pay as PaymentsService
+    participant Mon as Monnify
+    participant Handler as BookingCheckoutHandler
+    participant Wallet as WalletLedgerService
+    participant Email as Email queue (BullMQ)
+
+    Customer->>Web: open bookmi.com/:slug
+    Web->>Pub: GET host + active services
+    Customer->>Web: pick service(s) + slot, enter name/email/phone
+    Web->>Pub: POST /:slug/checkout
+
+    rect rgb(245, 245, 245)
+        note over Pub: one Postgres transaction<br/>(retried once on 40001 for concurrent slot picks)
+        Pub->>Pub: resolveOrCreate customer (dedupe by phone)
+        Pub->>Pub: resolveAmount() — server-computed price,<br/>client amount only used as PWYW floor
+        Pub->>Pub: insert bookings row (status: pending)<br/>retry-once on code collision
+        Pub->>Pay: initiate(purposeType: booking_checkout,<br/>purposeId: booking.id, idempotencyKey: "checkout:<id>")
+        Pay-->>Pub: payment_transactions row (pending) + reference
+    end
+
+    Pub-->>Web: { booking, payment.reference }
+    Web->>Mon: open Monnify popup (reference)
+    Customer->>Mon: complete payment
+
+    Mon-->>Web: onComplete callback
+    Web->>Pay: GET /payments/:reference/verify
+
+    par verify path
+        Pay->>Mon: verify(providerReference)
+        Mon-->>Pay: SUCCESSFUL_TRANSACTION
+    and async webhook path, may race verify
+        Mon->>Pay: POST /payments/webhook/monnify
+        note right of Pay: deduped by providerCode + providerEventId<br/>if verify already settled it, this is a no-op
+    end
+
+    Pay->>Pay: finalize() — advisory lock + state-machine guard
+    Pay->>Handler: onSuccess(booking.id)
+
+    rect rgb(245, 245, 245)
+        Handler->>Handler: pg_advisory_xact_lock(hashtextextended(booking.id, 1))
+        Handler->>Handler: reload booking, no-op if already confirmed
+        Handler->>Handler: platformFeeKobo = paid * PLATFORM_FEE_BPS / 10000<br/>netToHostKobo = paid - platformFeeKobo
+        Handler->>Handler: update bookings SET status='confirmed', amounts, paymentTransactionId
+        Handler->>Wallet: appendEntry(credit, netToHostKobo, sourceType: payment_transaction)
+        Handler->>Handler: roll up customer stats (totalBookings, totalSpentKobo)
+    end
+
+    Handler->>Email: enqueue "new booking" (host) + "you're booked" (customer)
+    Web-->>Customer: success screen with booking code

@@ -1,0 +1,28 @@
+%%{init: {"theme": "neutral"} }%%
+flowchart TB
+    host["<b>Host (Creator)</b><br/><i>[Person]</i><br/>Runs a business on Bookmi: lists<br/>services, manages bookings, gets paid<br/>out. Authenticates with an account."]
+    customer["<b>Customer (Audience)</b><br/><i>[Person]</i><br/>Books/pays a host's services from a<br/>public storefront link. Never creates<br/>an account."]
+
+    bookmi["<b>Bookmi</b><br/><i>[Software System]</i><br/>Lets hosts sell bookable services and<br/>tips via a public storefront, and<br/>manages payments, wallet balance,<br/>and payouts."]
+
+    supabase["<b>Supabase Auth</b><br/><i>[External System]</i><br/>Issues JWTs for host signup/login<br/>(email + OTP, OAuth). Customers<br/>never authenticate."]
+    monnify["<b>Monnify</b><br/><i>[External System]</i><br/>Nigerian PSP: checkout (card/bank/<br/>USSD), disbursements (payouts/<br/>refunds), reserved virtual accounts."]
+    smtp["<b>SMTP Provider</b><br/><i>[External System]</i><br/>Delivers transactional email:<br/>confirmations, payment links, OTP,<br/>password reset."]
+    cloudinary["<b>Cloudinary</b><br/><i>[External System]</i><br/>Client-side image hosting for<br/>host avatars."]
+
+    host -- "Signs up, onboards, manages<br/>services/bookings/wallet [HTTPS]" --> bookmi
+    customer -- "Browses storefront, books,<br/>pays [HTTPS]" --> bookmi
+    host -- "Uploads avatar directly [HTTPS]" --> cloudinary
+
+    bookmi -- "Verifies JWT on every<br/>authenticated request [HTTPS/JWKS]" --> supabase
+    bookmi -- "Initiates/verifies payments,<br/>disburses payouts &amp; refunds,<br/>provisions reserved accounts [HTTPS]" --> monnify
+    monnify -- "Payment / refund / reserved-<br/>account webhooks [HTTPS, HMAC]" --> bookmi
+    bookmi -- "Sends transactional emails [SMTP]" --> smtp
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999999,stroke:#6b6b6b,color:#fff
+
+    class host,customer person
+    class bookmi system
+    class supabase,monnify,smtp,cloudinary external

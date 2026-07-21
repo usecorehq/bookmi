@@ -1,5 +1,7 @@
 # Booking flow — end to end
 
+> Diagram: [booking flow sequence](../diagrams/images/booking-flow.svg)
+
 The user-visible flow, from a fresh visitor to a settled booking, and everything the system does to keep it correct.
 
 ## Actors

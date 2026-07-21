@@ -1,0 +1,35 @@
+%%{init: {"theme": "neutral"} }%%
+stateDiagram-v2
+    [*] --> pending: PaymentsService.initiate()<br/>insert payment_transactions row
+
+    pending --> processing: provider reports in-flight
+    pending --> success: verify/webhook reports success
+    pending --> failed: verify/webhook reports failure
+    pending --> abandoned: customer never completes
+
+    processing --> success
+    processing --> failed
+    processing --> abandoned
+
+    success --> reversed: chargeback (rare)
+
+    failed --> [*]
+    abandoned --> [*]
+    reversed --> [*]
+
+    note right of success
+        finalize() runs inside an advisory-locked
+        transaction (pg_advisory_xact_lock on tx id).
+        Amount/currency mismatch vs. the minted
+        transaction refuses the transition entirely.
+        Reachable from either verify() (client-
+        triggered) or processWebhook() (Monnify-
+        pushed) — whichever arrives first wins;
+        the other is a replay-safe no-op.
+    end note
+
+    note left of pending
+        Only a same-status report or an allowed
+        edge above is accepted; anything else is
+        rejected by payment-state.ts::canTransition
+    end note

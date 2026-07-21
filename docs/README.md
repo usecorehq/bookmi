@@ -12,6 +12,10 @@ Why we made the choices we made. Read these when you want to change something an
 - **[Emails](architecture/emails.md)** — React Email templates + provider abstraction, preview server, why we send inline today, upgrade path to a queue.
 - **[Booking flow](architecture/booking-flow.md)** — End-to-end sequence from signup through settled booking, including race handling, popup cancels, and webhook lag.
 
+### Diagrams
+
+- **[Architecture diagrams](diagrams/README.md)** — C4 model, system flowchart, payment/booking/payout sequence and state diagrams, and creator/audience/onboarding user journeys.
+
 ## Guides
 
 How to actually run and deploy Bookmi.
