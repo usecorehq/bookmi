@@ -62,11 +62,7 @@ function MonnifyMark({ className = "" }: { className?: string }) {
 }
 
 function CheckBadge() {
-  return (
-    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary">
-      <Icon icon="solar:check-read-linear" className="h-3.5 w-3.5 text-white" />
-    </span>
-  );
+  return <Icon icon="solar:check-circle-bold" className="h-5 w-5 shrink-0 text-primary" />;
 }
 
 function Hero() {
@@ -368,33 +364,42 @@ function WhoItsFor() {
           subtitle="If you sell your time or a paid service, Bookmi is the link your clients need."
         />
       </div>
-      <div className="mt-10 flex gap-4 overflow-x-auto pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {audiences.map((a) => (
-          <div
-            key={a.name}
-            className="group relative h-[420px] w-[280px] shrink-0 overflow-hidden sm:h-[520px] sm:w-[360px]"
-          >
-            <img
-              src={a.image}
-              alt={a.name}
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-5">
-              <span className="font-display text-2xl text-white">{a.name}</span>
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
-                <Icon icon="solar:arrow-right-up-linear" className="h-4 w-4 text-white" />
-              </span>
+      <div className="mt-10 overflow-hidden">
+        <div className="animate-marquee-slow flex w-max hover:[animation-play-state:paused]">
+          {[0, 1].map((half) => (
+            <div key={half} className="flex gap-4 pr-4" aria-hidden={half === 1}>
+              {audiences.map((a) => (
+                <Link
+                  key={a.name}
+                  to="/auth/signup"
+                  tabIndex={half === 1 ? -1 : undefined}
+                  className="group relative h-[420px] w-[280px] shrink-0 overflow-hidden sm:h-[520px] sm:w-[360px]"
+                >
+                  <img
+                    src={a.image}
+                    alt={a.name}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                  <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-5">
+                    <span className="font-display text-2xl text-white">{a.name}</span>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm transition-colors group-hover:bg-white/35">
+                      <Icon icon="solar:arrow-right-up-linear" className="h-4 w-4 text-white" />
+                    </span>
+                  </div>
+                </Link>
+              ))}
+              <Link
+                to="/auth/signup"
+                tabIndex={half === 1 ? -1 : undefined}
+                className="flex h-[420px] w-[280px] shrink-0 flex-col items-center justify-center gap-3 bg-[#FFDCC1] transition-colors hover:bg-[#ffd2ae] sm:h-[520px] sm:w-[360px]"
+              >
+                <Icon icon="solar:add-circle-linear" className="h-10 w-10 text-foreground" />
+                <span className="font-display text-3xl">You</span>
+              </Link>
             </div>
-          </div>
-        ))}
-        <Link
-          to="/auth/signup"
-          className="flex h-[420px] w-[280px] shrink-0 flex-col items-center justify-center gap-3 bg-[#FFDCC1] transition-colors hover:bg-[#ffd2ae] sm:h-[520px] sm:w-[360px]"
-        >
-          <Icon icon="solar:add-circle-linear" className="h-10 w-10 text-foreground" />
-          <span className="font-display text-3xl">You</span>
-        </Link>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -435,35 +440,57 @@ function FAQ() {
   const [open, setOpen] = useState<number | null>(null);
 
   return (
-    <section id="faq" className="border-b border-gray-200">
+    <section id="faq" className="border-b border-gray-200 bg-gray-50/50">
       <div className="container py-20">
-        <SectionHeading
-          eyebrow="FAQ"
-          title="Common questions"
-          subtitle="Everything you need to know before you get started."
-        />
-        <div className="mt-10 max-w-2xl divide-y divide-gray-200 border-y border-gray-200">
-          {items.map((item, i) => (
-            <div key={i}>
-              <button
-                onClick={() => setOpen(open === i ? null : i)}
-                className="flex w-full items-center justify-between gap-4 py-5 text-left"
-                aria-expanded={open === i}
-              >
-                <span className="font-medium text-foreground">{item.q}</span>
-                <Icon
-                  icon="solar:alt-arrow-down-bold"
-                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${
-                    open === i ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-              {open === i && (
-                <p className="pb-5 text-sm leading-relaxed text-muted-foreground">{item.a}</p>
-              )}
-            </div>
-          ))}
+        <div className="mx-auto max-w-2xl text-center">
+          <div className="text-xs font-semibold uppercase tracking-wider text-primary">FAQ</div>
+          <h2 className="mt-2 font-display text-3xl tracking-tight sm:text-4xl">
+            Common questions
+          </h2>
+          <p className="mt-3 text-lg text-muted-foreground">
+            Everything you need to know before you get started.
+          </p>
         </div>
+        <div className="mx-auto mt-12 flex max-w-2xl flex-col gap-3">
+          {items.map((item, i) => {
+            const isOpen = open === i;
+            return (
+              <div
+                key={i}
+                className={`border transition-colors ${
+                  isOpen ? "border-primary bg-white" : "border-gray-200 bg-white hover:border-gray-300"
+                }`}
+              >
+                <button
+                  onClick={() => setOpen(isOpen ? null : i)}
+                  className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
+                  aria-expanded={isOpen}
+                >
+                  <span className="font-display text-lg text-foreground">{item.q}</span>
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200 ${
+                      isOpen ? "bg-primary text-white rotate-180" : "bg-primary-light text-primary"
+                    }`}
+                  >
+                    <Icon icon="solar:alt-arrow-down-linear" className="h-4 w-4" />
+                  </span>
+                </button>
+                {isOpen && (
+                  <p className="px-6 pb-6 text-[15px] leading-relaxed text-muted-foreground animate-in fade-in slide-in-from-top-1 duration-200">
+                    {item.a}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-10 text-center text-sm text-muted-foreground">
+          Still have a question?{" "}
+          <Link to="/auth/signup" className="font-medium text-primary hover:underline">
+            Get started
+          </Link>{" "}
+          — it takes five minutes to see for yourself.
+        </p>
       </div>
     </section>
   );
@@ -472,7 +499,7 @@ function FAQ() {
 function FinalCTA() {
   return (
     <section className="relative overflow-hidden border-b border-gray-200 bg-[#D95656] text-white">
-      <div className="container relative z-10 py-32 sm:py-40 text-center">
+      <div className="container relative z-10 pt-28 pb-52 sm:pt-36 sm:pb-64 text-center">
         <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl tracking-tight">
           Get your bookmi link today.
         </h2>
@@ -486,7 +513,7 @@ function FinalCTA() {
           Create your page <Icon icon="solar:arrow-right-bold" className="h-5 w-5" />
         </Link>
       </div>
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[450px] sm:max-w-[600px] md:max-w-[800px] pointer-events-none select-none z-0">
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[240px] sm:max-w-[300px] md:max-w-[360px] pointer-events-none select-none z-0">
         <img
           src="/images/halfqore.svg"
           alt=""
@@ -738,7 +765,9 @@ function DualFunctionality() {
   const panels = {
     bookings: {
       icon: (
-        <img src="/images/landing/digitalmenu-icon.svg" alt="" className="h-7 w-7" />
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-primary">
+          <Icon icon="solar:calendar-bold" className="h-5 w-5" />
+        </span>
       ),
       title: "Bookings & Paid Consultations",
       body: "Let clients browse your availability, reserve their slot, and pay upfront. No calendar overlaps, no payment chasing, and no scheduling back-and-forth.",

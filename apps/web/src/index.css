@@ -122,6 +122,10 @@
 .animate-marquee {
   animation: marquee 28s linear infinite;
 }
+/* Wider track (Who it's for carousel) — slower so tiles stay readable/clickable. */
+.animate-marquee-slow {
+  animation: marquee 80s linear infinite;
+}
 
 /* Global override — Radix Select and any card/input that sneaks in a
    rounded utility should still land square. Mirrors qore-menu's rule. */
