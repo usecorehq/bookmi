@@ -4,6 +4,7 @@ import { Clock, Coffee, CalendarDays, MapPin, Phone } from "lucide-react";
 import type { PublicServiceView } from "@bookmi/shared-types";
 import { CheckoutDrawer } from "@/components/checkout/CheckoutDrawer";
 import { usePublicHost, usePublicService } from "@/hooks/usePublicHost";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { formatNaira } from "@/lib/utils";
 
 /**
@@ -32,7 +33,11 @@ export default function HostPublicPage() {
   }, [autoOpened, serviceSlug, serviceQ.data]);
 
   if (hostQ.isPending) {
-    return <PageShell><div className="text-sm text-muted-foreground">Loading…</div></PageShell>;
+    return (
+      <PageShell>
+        <HostPublicPageSkeleton />
+      </PageShell>
+    );
   }
   if (hostQ.isError || !hostQ.data) {
     return (
@@ -206,6 +211,40 @@ function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50 px-4">
       <div className="max-w-3xl mx-auto">{children}</div>
+    </div>
+  );
+}
+
+function HostPublicPageSkeleton() {
+  return (
+    <div className="max-w-2xl mx-auto py-10">
+      <div className="text-center flex flex-col items-center">
+        <Skeleton className="w-20 h-20 mb-4 rounded-full" />
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-4 w-32 mt-2" />
+        <Skeleton className="h-4 w-64 mt-3" />
+      </div>
+
+      <div className="mt-8 space-y-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <ServiceCardSkeleton key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ServiceCardSkeleton() {
+  return (
+    <div className="card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-3.5 w-full max-w-xs" />
+          <Skeleton className="h-4 w-24 mt-3" />
+        </div>
+        <Skeleton className="h-9 w-20 shrink-0" />
+      </div>
     </div>
   );
 }
