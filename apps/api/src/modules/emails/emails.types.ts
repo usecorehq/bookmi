@@ -92,7 +92,7 @@ export interface SecurityOtpData {
   /** 6-digit plaintext code — the only place it lives. */
   code: string;
   /** Discriminator so the template can label the action. */
-  purpose: "refund_booking" | "withdraw_funds";
+  purpose: "refund_booking" | "withdraw_funds" | "create_paycode" | "reveal_paycode";
   /** Human-facing label — "refund" or "withdrawal". */
   purposeLabel: string;
   /** How long until the code goes stale — used in the copy. */

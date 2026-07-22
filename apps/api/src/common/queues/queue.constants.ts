@@ -9,3 +9,4 @@
  *      a dedicated worker module when we go two-role).
  */
 export const QUEUE_EMAILS = "emails";
+export const QUEUE_PAYCODE_SWEEP = "paycode-sweep";

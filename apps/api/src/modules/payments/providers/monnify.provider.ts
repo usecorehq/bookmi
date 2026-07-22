@@ -9,12 +9,16 @@ import { ConfigService } from "@nestjs/config";
 import { createHash, createHmac } from "node:crypto";
 import type {
   Bank,
+  CreatePaycodeInput,
   DisburseInput,
   DisburseResult,
+  FetchPaycodesInput,
+  FetchPaycodesResult,
   InitializeInput,
   InitializeResult,
   NormalizedStatus,
   ParsedWebhook,
+  PaycodeResult,
   PaymentCardDetails,
   PaymentProvider,
   RefundInput,
@@ -208,6 +212,21 @@ export class MonnifyProvider implements PaymentProvider {
       return parseReservedAccountWebhook(payload, rawBody);
     }
 
+    // OPEN RISK (flagged, not verified against a live sandbox yet): Monnify's
+    // public docs don't show a worked webhook payload for paycode
+    // redemption/expiry/cancellation, unlike every other domain above. This
+    // heuristic — routing on the presence of a `paycodeReference` in
+    // `eventData` — is a best guess by analogy to the create/get response
+    // shape. It is NOT the only correctness path: `PaycodeService` also
+    // lazily reconciles via `getPaycode` on every read and a background
+    // sweep (`PaycodeSweepProcessor`) runs every 5 minutes, so a wrong or
+    // absent webhook never leaves a host's balance stuck. Capture the first
+    // real sandbox payload and adjust the field name/eventType check here
+    // before enabling `MONNIFY_USE_PAYCODE_API` in production.
+    if ((payload.eventData as MonnifyPaycodeEventData | undefined)?.paycodeReference) {
+      return parsePaycodeWebhook(payload, rawBody);
+    }
+
     const data = payload.eventData ?? {};
     const paymentReference = data.paymentReference ?? "";
 
@@ -376,6 +395,158 @@ export class MonnifyProvider implements PaymentProvider {
           accountNumber: a.accountNumber,
           accountName: a.accountName,
         })),
+      raw: parsed,
+    };
+  }
+
+  // ─── paycode (offline payout) helpers ─────────────────────────────
+
+  /**
+   * Generate a paycode redeemable for cash at a Moniepoint POS agent —
+   * `POST /api/v1/paycode`. Confirmed against Monnify's live API reference
+   * (not inferred), including the worked request/response example.
+   *
+   * OPEN RISK (flagged, not verified against a live sandbox yet): Monnify's
+   * docs example sends `amount` as a raw JS number (`amount: 30`), unlike
+   * every other amount field this codebase integrates with, which uses
+   * `minorToMajor`'s decimal-string convention (see `disburse()`). Sending
+   * `Number(minorToMajor(...))` here matches the documented example, but
+   * smoke-test against the sandbox before enabling
+   * `MONNIFY_USE_PAYCODE_API` in production and adjust if a string is
+   * actually expected — same posture as the existing `refundAmount` risk
+   * flagged in `refund()` below.
+   */
+  async createPaycode(input: CreatePaycodeInput): Promise<PaycodeResult> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+    const clientId = this.requireApiKey();
+
+    const body = {
+      amount: Number(minorToMajor(input.amountMinor)),
+      beneficiaryName: input.beneficiaryName,
+      paycodeReference: input.paycodeReference,
+      expiryDate: formatMonnifyDateTime(input.expiresAt),
+      clientId,
+    };
+
+    const res = await fetch(`${baseUrl}/api/v1/paycode`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const parsed = (await res.json().catch(() => null)) as MonnifyPaycodeBody | null;
+    if (!parsed?.requestSuccessful || !parsed.responseBody) {
+      this.logger.warn(
+        `Monnify create-paycode failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Monnify paycode creation failed");
+    }
+    return paycodeResultFromBody(parsed.responseBody, input.paycodeReference);
+  }
+
+  /** Cancel a previously-created paycode — `DELETE /api/v1/paycode/{paycodeReference}`. */
+  async cancelPaycode(paycodeReference: string): Promise<PaycodeResult> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const res = await fetch(
+      `${baseUrl}/api/v1/paycode/${encodeURIComponent(paycodeReference)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+
+    const parsed = (await res.json().catch(() => null)) as MonnifyPaycodeBody | null;
+    if (!parsed?.requestSuccessful || !parsed.responseBody) {
+      this.logger.warn(
+        `Monnify cancel-paycode failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Monnify paycode cancellation failed");
+    }
+    return paycodeResultFromBody(parsed.responseBody, paycodeReference);
+  }
+
+  /** Masked paycode lookup — `GET /api/v1/paycode/{paycodeReference}`. */
+  async getPaycode(paycodeReference: string): Promise<PaycodeResult> {
+    return this.fetchSinglePaycode(paycodeReference, "");
+  }
+
+  /** Unmasked paycode lookup — `GET /api/v1/paycode/{paycodeReference}/authorize`. */
+  async getClearPaycode(paycodeReference: string): Promise<PaycodeResult> {
+    return this.fetchSinglePaycode(paycodeReference, "/authorize");
+  }
+
+  private async fetchSinglePaycode(
+    paycodeReference: string,
+    suffix: "" | "/authorize",
+  ): Promise<PaycodeResult> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const res = await fetch(
+      `${baseUrl}/api/v1/paycode/${encodeURIComponent(paycodeReference)}${suffix}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+
+    const parsed = (await res.json().catch(() => null)) as MonnifyPaycodeBody | null;
+    if (!parsed?.requestSuccessful || !parsed.responseBody) {
+      this.logger.warn(
+        `Monnify get-paycode${suffix} failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Could not retrieve that paycode.");
+    }
+    const result = paycodeResultFromBody(parsed.responseBody, paycodeReference);
+    // The `/authorize` response's `paycode` field is the UNMASKED value —
+    // surface it as `clearPaycode` and never let it leak into the masked
+    // `maskedPaycode` field callers might log or persist.
+    if (suffix === "/authorize") {
+      return { ...result, clearPaycode: parsed.responseBody.paycode, maskedPaycode: undefined };
+    }
+    return result;
+  }
+
+  /**
+   * History of generated paycodes over a period — `GET /api/v1/paycode`.
+   * `from`/`to` are unix-seconds timestamps per Monnify's docs.
+   */
+  async fetchPaycodes(input: FetchPaycodesInput): Promise<FetchPaycodesResult> {
+    const baseUrl = this.baseUrl();
+    const token = await this.getAccessToken();
+
+    const params = new URLSearchParams();
+    if (input.transactionReference) params.set("transactionReference", input.transactionReference);
+    if (input.beneficiaryName) params.set("beneficiaryName", input.beneficiaryName);
+    if (input.transactionStatus) params.set("transactionStatus", input.transactionStatus);
+    if (input.from) params.set("from", String(Math.floor(input.from.getTime() / 1000)));
+    if (input.to) params.set("to", String(Math.floor(input.to.getTime() / 1000)));
+
+    const query = params.toString();
+    const res = await fetch(`${baseUrl}/api/v1/paycode${query ? `?${query}` : ""}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const parsed = (await res.json().catch(() => null)) as MonnifyFetchPaycodesBody | null;
+    if (!parsed?.requestSuccessful || !parsed.responseBody) {
+      this.logger.warn(
+        `Monnify fetch-paycodes failed: ${res.status} ${parsed?.responseMessage ?? "unknown"}`,
+      );
+      throw new BadRequestException(parsed?.responseMessage ?? "Monnify fetch paycodes failed");
+    }
+    return {
+      items: (parsed.responseBody.content ?? []).map((item) =>
+        paycodeResultFromBody(item, item.paycodeReference ?? ""),
+      ),
       raw: parsed,
     };
   }
@@ -657,6 +828,92 @@ function mapRefundStatus(providerStatus: string | undefined): RefundResult["stat
     default:
       return "failed";
   }
+}
+
+/** Monnify's paycode `transactionStatus` → our lowercase four-state enum. */
+function mapPaycodeStatus(providerStatus: string | undefined): PaycodeResult["status"] {
+  switch (providerStatus?.toUpperCase()) {
+    case "SUCCESS":
+      return "success";
+    case "EXPIRED":
+      return "expired";
+    case "CANCELLED":
+      return "cancelled";
+    default:
+      return "pending";
+  }
+}
+
+/** `Date` → Monnify's paycode `expiryDate` format: `YYYY-MM-DD HH:MM:SS` (UTC). */
+function formatMonnifyDateTime(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ` +
+    `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`
+  );
+}
+
+function paycodeResultFromBody(
+  body: MonnifyPaycodeResponseBody,
+  fallbackReference: string,
+): PaycodeResult {
+  return {
+    paycodeReference: body.paycodeReference ?? fallbackReference,
+    transactionReference: body.transactionReference ?? "",
+    beneficiaryName: body.beneficiaryName ?? "",
+    amountMinor: body.amount != null ? majorToMinor(body.amount) : 0,
+    feeMinor: body.fee != null ? majorToMinor(body.fee) : undefined,
+    status: mapPaycodeStatus(body.transactionStatus),
+    expiresAt: parseMonnifyPaycodeExpiry(body.expiryDate),
+    maskedPaycode: body.paycode,
+    raw: body,
+  };
+}
+
+/** Paycode's own `expiryDate`/`createdOn` shape: `YYYY-MM-DD HH:MM:SS`, no timezone marker — treated as UTC. */
+function parseMonnifyPaycodeExpiry(raw: string | undefined): Date | undefined {
+  if (!raw) return undefined;
+  const m = raw.trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return undefined;
+  return new Date(
+    Date.UTC(
+      parseInt(m[1]!, 10),
+      parseInt(m[2]!, 10) - 1,
+      parseInt(m[3]!, 10),
+      parseInt(m[4]!, 10),
+      parseInt(m[5]!, 10),
+      parseInt(m[6]!, 10),
+    ),
+  );
+}
+
+/**
+ * Parse a heuristic paycode webhook into a `domain: "paycode"` ParsedWebhook
+ * — see the OPEN RISK comment at the `parseWebhook` call site for why this
+ * routing condition (presence of `paycodeReference`) is a best guess rather
+ * than a confirmed event shape.
+ */
+function parsePaycodeWebhook(payload: MonnifyWebhookBody, rawBody: Buffer): ParsedWebhook {
+  const data = (payload.eventData ?? {}) as MonnifyPaycodeEventData;
+  const paycodeReference = data.paycodeReference ?? "";
+  const transactionReference = data.transactionReference ?? "";
+
+  const providerEventId = transactionReference
+    ? `monnify:paycode:${transactionReference}`
+    : `monnify:paycode:sha256:${createHash("sha256").update(rawBody).digest("hex")}`;
+
+  return {
+    providerEventId,
+    providerReference: paycodeReference,
+    providerTransactionId: transactionReference,
+    domain: "paycode",
+    status: mapPaycodeStatus(data.transactionStatus) === "success" ? "success" : "failed",
+    eventName: payload.eventType ?? "PAYCODE_STATUS",
+    amountMinor: data.amount != null ? majorToMinor(data.amount) : undefined,
+    failureReason:
+      mapPaycodeStatus(data.transactionStatus) === "success" ? undefined : data.transactionStatus,
+    raw: payload,
+  };
 }
 
 /** Truncate to `max` chars — Monnify silently truncates some refund fields server-side; do it ourselves so what we log matches what Monnify stores. */
@@ -1027,6 +1284,58 @@ interface MonnifyReservedAccountEventData {
   paidOn?: string;
   product?: { type?: string; reference?: string };
   customer?: { name?: string; email?: string; customerReference?: string };
+}
+
+/**
+ * Confirmed from Monnify's Paycode API reference (not inferred) — worked
+ * request/response examples for create/get/cancel/authorize all share this
+ * shape. `paycode` is masked except on the `/authorize` (getClearPaycode)
+ * response, where it's the unmasked digits.
+ */
+interface MonnifyPaycodeResponseBody {
+  paycode?: string;
+  transactionReference?: string;
+  paycodeReference?: string;
+  beneficiaryName?: string;
+  amount?: number | string;
+  fee?: number | string;
+  /** PENDING | SUCCESS | EXPIRED | CANCELLED. */
+  transactionStatus?: string;
+  expiryDate?: string;
+  createdOn?: string;
+  createdBy?: string;
+  modifiedBy?: string;
+}
+
+interface MonnifyPaycodeBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseCode?: string;
+  responseBody?: MonnifyPaycodeResponseBody;
+}
+
+interface MonnifyFetchPaycodesBody {
+  requestSuccessful: boolean;
+  responseMessage?: string;
+  responseCode?: string;
+  responseBody?: {
+    content?: MonnifyPaycodeResponseBody[];
+    totalPages?: number;
+    totalElements?: number;
+  };
+}
+
+/**
+ * Shape of a paycode-domain webhook `eventData`. INFERRED by analogy to
+ * `MonnifyPaycodeResponseBody` — see `parsePaycodeWebhook`'s open-risk
+ * comment at its call site in `parseWebhook`. Adjust once a real sandbox
+ * payload is seen.
+ */
+interface MonnifyPaycodeEventData {
+  paycodeReference?: string;
+  transactionReference?: string;
+  amount?: number | string;
+  transactionStatus?: string;
 }
 
 interface MonnifyDisburseBody {

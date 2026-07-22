@@ -26,6 +26,8 @@ const RATE_LIMIT_MAX = 3;
 const PURPOSE_LABELS: Record<SecurityChallengePurpose, string> = {
   refund_booking: "refund",
   withdraw_funds: "withdrawal",
+  create_paycode: "paycode creation",
+  reveal_paycode: "paycode reveal",
 };
 
 /**

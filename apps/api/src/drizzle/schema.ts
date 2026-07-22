@@ -474,6 +474,57 @@ export const payouts = bookmi.table(
 );
 
 /**
+ * Offline payout — a Monnify Paycode a host generates against their wallet
+ * balance, redeemable for cash at any Moniepoint POS agent instead of a
+ * bank transfer. Same insert-first idempotency pattern as `payouts`.
+ *
+ * `paycode_reference` is bookmi's own merchant-minted reference (sent to
+ * Monnify as `paycodeReference`); `monnify_transaction_reference` is
+ * Monnify's own `MFY-...` reference for the same paycode.
+ * `masked_paycode` stores Monnify's own masked digits (safe to persist) —
+ * the unmasked/clear code is NEVER persisted; it's fetched live from
+ * Monnify's `/authorize` endpoint on demand, or deterministically
+ * regenerated in mock mode.
+ *
+ * `status` mirrors Monnify's four-state vocabulary in lowercase — pending
+ * (ready to redeem) | success (redeemed) | expired (lifespan exhausted,
+ * auto-flipped by the background sweep) | cancelled (host cancelled before
+ * use) — plus one bookmi-only state, `failed`, for when the *creation*
+ * call itself failed and no code ever went live (no wallet debit was ever
+ * posted, so unlike expired/cancelled it needs no compensating credit).
+ * expired/cancelled both trigger a compensating wallet_ledger credit.
+ */
+export const paycodes = bookmi.table(
+  "paycodes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => hostProfiles.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    feeKobo: bigint("fee_kobo", { mode: "number" }),
+    beneficiaryName: text("beneficiary_name").notNull(),
+    paycodeReference: text("paycode_reference").notNull(),
+    monnifyTransactionReference: text("monnify_transaction_reference"),
+    maskedPaycode: text("masked_paycode"),
+    status: text("status").notNull().default("pending"),
+    // 'pending' | 'success' | 'expired' | 'cancelled' | 'failed'
+    failureReason: text("failure_reason"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    idempotencyKey: text("idempotency_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    hostIdx: index("pc_host_idx").on(t.hostId, t.status),
+    referenceUniq: uniqueIndex("pc_reference_uniq").on(t.paycodeReference),
+    idempotencyUniq: uniqueIndex("pc_host_idempotency_uniq")
+      .on(t.hostId, t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} IS NOT NULL`),
+  }),
+);
+
+/**
  * Per-operation ledger for refund disbursements. Insert-first pattern: a row
  * is created before Monnify is touched. The (booking_id, idempotency_key)
  * unique constraint is the retry-safety edge — the same idempotency key from
@@ -569,11 +620,12 @@ export const walletTopups = bookmi.table(
  * status flip does NOT invalidate the chain; every other column is covered.
  *
  * `source_type` names the domain table that produced the entry
- * (`payment_transaction` | `payout` | `refund` | `reserved_account`),
- * `source_id` links to that row's uuid (for `reserved_account`, that's a
- * `wallet_topups` row), and `source_mode` describes the business intent
- * (`booking` | `tip` | `withdrawal` | `refund` | `wallet_topup`). Both
- * together answer "what caused this ₦ delta?" without a join.
+ * (`payment_transaction` | `payout` | `refund` | `reserved_account` |
+ * `paycode`), `source_id` links to that row's uuid (for `reserved_account`,
+ * that's a `wallet_topups` row), and `source_mode` describes the business
+ * intent (`booking` | `tip` | `withdrawal` | `refund` | `wallet_topup` |
+ * `paycode_redemption`). Both together answer "what caused this ₦ delta?"
+ * without a join.
  */
 export const walletLedger = bookmi.table(
   "wallet_ledger",
@@ -653,6 +705,8 @@ export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
+export type Paycode = typeof paycodes.$inferSelect;
+export type NewPaycode = typeof paycodes.$inferInsert;
 export type Refund = typeof refunds.$inferSelect;
 export type NewRefund = typeof refunds.$inferInsert;
 export type ReservedBankAccount = typeof reservedBankAccounts.$inferSelect;
@@ -664,12 +718,28 @@ export type WalletLedgerEntry = typeof walletLedger.$inferSelect;
 export type NewWalletLedgerEntry = typeof walletLedger.$inferInsert;
 
 export type LedgerEntryType = "credit" | "debit";
-export type LedgerSourceType = "payment_transaction" | "payout" | "refund" | "reserved_account";
-export type LedgerSourceMode = "booking" | "tip" | "withdrawal" | "refund" | "wallet_topup";
+export type LedgerSourceType =
+  | "payment_transaction"
+  | "payout"
+  | "refund"
+  | "reserved_account"
+  | "paycode";
+export type LedgerSourceMode =
+  | "booking"
+  | "tip"
+  | "withdrawal"
+  | "refund"
+  | "wallet_topup"
+  | "paycode_redemption";
 export type LedgerEntryStatus = "pending" | "success" | "failed" | "cancelled";
 
 export type RefundStatus = "processing" | "success" | "failed";
-export type SecurityChallengePurpose = "refund_booking" | "withdraw_funds";
+export type PaycodeStatus = "pending" | "success" | "expired" | "cancelled" | "failed";
+export type SecurityChallengePurpose =
+  | "refund_booking"
+  | "withdraw_funds"
+  | "create_paycode"
+  | "reveal_paycode";
 
 export type BookingStatus =
   | "pending"

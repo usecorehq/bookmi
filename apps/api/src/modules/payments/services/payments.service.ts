@@ -32,6 +32,7 @@ import {
 import { canTransition, isTerminal } from "./payment-state";
 import { RefundWebhookService } from "./refund-webhook.service";
 import { ReservedAccountWebhookService } from "./reserved-account-webhook.service";
+import { PaycodeWebhookService } from "./paycode-webhook.service";
 
 export interface InitiateInput {
   purposeType: string;
@@ -74,6 +75,7 @@ export class PaymentsService {
     // payments-flow.int-spec.ts.
     @Optional() private readonly refundWebhooks?: RefundWebhookService,
     @Optional() private readonly reservedAccountWebhooks?: ReservedAccountWebhookService,
+    @Optional() private readonly paycodeWebhooks?: PaycodeWebhookService,
   ) {}
 
   /** This deployment's environment — encoded into every reference it mints. */
@@ -334,6 +336,24 @@ export class PaymentsService {
         return { handled: false, reason: "reserved account webhooks not wired" };
       }
       const result = await this.reservedAccountWebhooks.reconcile(parsed);
+      await this.markWebhookProcessed(webhookRow!.id, result.handled ? null : (result.reason ?? "unhandled"));
+      return result;
+    }
+
+    // Paycode-domain events (redeemed/expired/cancelled) never touch a
+    // payment_transactions row either — route them to PaycodeWebhookService.
+    // Best-effort only (see the OPEN RISK comment on
+    // MonnifyProvider.parseWebhook's paycode branch) — the lazy + scheduled
+    // sweep reconciliation in PaycodeService doesn't depend on this path.
+    if (parsed.domain === "paycode") {
+      if (!this.paycodeWebhooks) {
+        await this.markWebhookProcessed(
+          webhookRow!.id,
+          "paycode webhook received but PaycodeWebhookService is not wired",
+        );
+        return { handled: false, reason: "paycode webhooks not wired" };
+      }
+      const result = await this.paycodeWebhooks.reconcile(parsed);
       await this.markWebhookProcessed(webhookRow!.id, result.handled ? null : (result.reason ?? "unhandled"));
       return result;
     }
