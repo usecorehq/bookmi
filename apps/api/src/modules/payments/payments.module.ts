@@ -4,6 +4,7 @@ import { PaymentsWebhookController } from "./controllers/payments-webhook.contro
 import { PaymentsService } from "./services/payments.service";
 import { RefundWebhookService } from "./services/refund-webhook.service";
 import { ReservedAccountWebhookService } from "./services/reserved-account-webhook.service";
+import { PaycodeWebhookService } from "./services/paycode-webhook.service";
 import { PaymentProviderRegistry } from "./providers/payment-provider.registry";
 import { PAYMENT_PROVIDERS } from "./providers/payment-provider.interface";
 import { MonnifyProvider } from "./providers/monnify.provider";
@@ -45,6 +46,12 @@ import { WalletLedgerModule } from "../hosts/wallet-ledger.module";
     // once `MONNIFY_USE_RESERVED_ACCOUNT_API` is flipped on (see
     // `HostWalletService.activateReservedAccount`).
     ReservedAccountWebhookService,
+
+    // Paycode-webhook reconciliation — best-effort; PaycodeService's own
+    // lazy + scheduled-sweep reconciliation is the correctness guarantee
+    // (see the OPEN RISK comment on MonnifyProvider.parseWebhook's paycode
+    // branch). Only exercised once MONNIFY_USE_PAYCODE_API is flipped on.
+    PaycodeWebhookService,
 
     // Orchestrator
     PaymentsService,

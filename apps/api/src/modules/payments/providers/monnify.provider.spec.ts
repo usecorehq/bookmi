@@ -508,6 +508,44 @@ describe("MonnifyProvider", () => {
         /^monnify:RESERVED_ACCOUNT_TRANSACTION:sha256:[0-9a-f]{64}$/,
       );
     });
+
+    it("routes a payload carrying paycodeReference to domain: paycode", () => {
+      const provider = new MonnifyProvider(fakeConfig());
+
+      const success = provider.parseWebhook(
+        Buffer.from(
+          JSON.stringify({
+            eventType: "PAYCODE_STATUS",
+            eventData: {
+              paycodeReference: "pc_abc-123",
+              transactionReference: "MFY-PC-1",
+              transactionStatus: "SUCCESS",
+              amount: 50,
+            },
+          }),
+        ),
+        {},
+      );
+      expect(success.domain).toBe("paycode");
+      expect(success.providerReference).toBe("pc_abc-123");
+      expect(success.providerTransactionId).toBe("MFY-PC-1");
+      expect(success.status).toBe("success");
+      expect(success.amountMinor).toBe(5_000);
+      expect(success.providerEventId).toBe("monnify:paycode:MFY-PC-1");
+
+      const expired = provider.parseWebhook(
+        Buffer.from(
+          JSON.stringify({
+            eventType: "PAYCODE_STATUS",
+            eventData: { paycodeReference: "pc_abc-124", transactionStatus: "EXPIRED" },
+          }),
+        ),
+        {},
+      );
+      expect(expired.domain).toBe("paycode");
+      expect(expired.status).toBe("failed");
+      expect(expired.failureReason).toBe("EXPIRED");
+    });
   });
 
   describe("reserveAccount", () => {
@@ -757,6 +795,161 @@ describe("MonnifyProvider", () => {
           reason: "test",
         }),
       ).rejects.toThrow("Transaction reference invalid");
+    });
+  });
+
+  describe("paycode API", () => {
+    it("creates a paycode with amount as a raw number and clientId = apiKey", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          requestSuccessful: true,
+          responseBody: {
+            paycode: "11467409",
+            transactionReference: "MFY-39A78F78E6C341759ACA344297A8CF70",
+            paycodeReference: "pc_abc-123",
+            beneficiaryName: "Marvelous Benji",
+            amount: 500,
+            fee: 100,
+            transactionStatus: "PENDING",
+            expiryDate: "2023-02-19 11:00:26",
+          },
+        }),
+      });
+
+      const provider = new MonnifyProvider(fakeConfig());
+      const result = await provider.createPaycode({
+        paycodeReference: "pc_abc-123",
+        beneficiaryName: "Marvelous Benji",
+        amountMinor: 50_000,
+        expiresAt: new Date("2023-02-19T11:00:26.000Z"),
+      });
+
+      expect(result.status).toBe("pending");
+      expect(result.transactionReference).toBe("MFY-39A78F78E6C341759ACA344297A8CF70");
+      expect(result.maskedPaycode).toBe("11467409");
+      expect(result.amountMinor).toBe(50_000);
+      expect(result.feeMinor).toBe(10_000);
+
+      const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe("https://monnify.test/api/v1/paycode");
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        amount: 500,
+        beneficiaryName: "Marvelous Benji",
+        paycodeReference: "pc_abc-123",
+        expiryDate: "2023-02-19 11:00:26",
+        clientId: API_KEY,
+      });
+    });
+
+    it("cancels a paycode via DELETE /api/v1/paycode/{paycodeReference}", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          requestSuccessful: true,
+          responseBody: { paycodeReference: "pc_abc-123", transactionStatus: "CANCELLED" },
+        }),
+      });
+
+      const provider = new MonnifyProvider(fakeConfig());
+      const result = await provider.cancelPaycode("pc_abc-123");
+
+      expect(result.status).toBe("cancelled");
+      const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe("https://monnify.test/api/v1/paycode/pc_abc-123");
+      expect(init.method).toBe("DELETE");
+    });
+
+    it("gets a masked paycode via GET /api/v1/paycode/{paycodeReference}", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          requestSuccessful: true,
+          responseBody: { paycodeReference: "pc_abc-123", paycode: "114••••09", transactionStatus: "PENDING" },
+        }),
+      });
+
+      const provider = new MonnifyProvider(fakeConfig());
+      const result = await provider.getPaycode("pc_abc-123");
+
+      expect(result.maskedPaycode).toBe("114••••09");
+      expect(result.clearPaycode).toBeUndefined();
+      const [url] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe("https://monnify.test/api/v1/paycode/pc_abc-123");
+    });
+
+    it("gets the unmasked paycode via GET /api/v1/paycode/{paycodeReference}/authorize", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          requestSuccessful: true,
+          responseBody: { paycodeReference: "pc_abc-123", paycode: "11467409", transactionStatus: "PENDING" },
+        }),
+      });
+
+      const provider = new MonnifyProvider(fakeConfig());
+      const result = await provider.getClearPaycode("pc_abc-123");
+
+      expect(result.clearPaycode).toBe("11467409");
+      expect(result.maskedPaycode).toBeUndefined();
+      const [url] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(url).toBe("https://monnify.test/api/v1/paycode/pc_abc-123/authorize");
+    });
+
+    it("fetches paycode history with from/to as unix-seconds query params", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          requestSuccessful: true,
+          responseBody: {
+            content: [{ paycodeReference: "pc_abc-123", transactionStatus: "SUCCESS" }],
+            totalElements: 1,
+          },
+        }),
+      });
+
+      const provider = new MonnifyProvider(fakeConfig());
+      const result = await provider.fetchPaycodes({
+        beneficiaryName: "Ada",
+        from: new Date("2023-01-01T00:00:00.000Z"),
+        to: new Date("2023-02-01T00:00:00.000Z"),
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.status).toBe("success");
+      const [url] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(url).toContain("beneficiaryName=Ada");
+      expect(url).toContain(`from=${Math.floor(new Date("2023-01-01T00:00:00.000Z").getTime() / 1000)}`);
+      expect(url).toContain(`to=${Math.floor(new Date("2023-02-01T00:00:00.000Z").getTime() / 1000)}`);
+    });
+
+    it("surfaces a Monnify error when paycode creation is unsuccessful", async () => {
+      mockAuthLogin(fetchMock);
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ requestSuccessful: false, responseMessage: "Invalid amount" }),
+      });
+      const provider = new MonnifyProvider(fakeConfig());
+      await expect(
+        provider.createPaycode({
+          paycodeReference: "pc_bad",
+          beneficiaryName: "Bad",
+          amountMinor: 0,
+          expiresAt: new Date(),
+        }),
+      ).rejects.toThrow("Invalid amount");
     });
   });
 });

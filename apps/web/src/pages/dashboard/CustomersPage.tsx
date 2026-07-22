@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCustomerSearch, useHostCustomers } from "@/hooks/useCustomers";
 import { useDebounce } from "@/hooks/useDebounce";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { formatNaira } from "@/lib/utils";
 
 export default function CustomersPage() {
@@ -44,7 +45,13 @@ export default function CustomersPage() {
 
       {/* List */}
       {source.isPending ? (
-        <div className="card p-6 text-sm text-muted-foreground">Loading…</div>
+        <ul className="card divide-y divide-gray-200">
+          {Array.from({ length: 5 }, (_, i) => (
+            <li key={i}>
+              <CustomerRowSkeleton />
+            </li>
+          ))}
+        </ul>
       ) : source.isError ? (
         <div className="card p-6 text-sm text-red-700">
           Couldn't load customers. Try again in a moment.
@@ -119,6 +126,30 @@ function CustomerRow({ customer }: { customer: Customer }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+function CustomerRowSkeleton() {
+  return (
+    <div className="flex items-center gap-4 p-4">
+      <Skeleton className="w-11 h-11 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-3 w-40" />
+      </div>
+      <div className="hidden sm:flex flex-col items-end gap-1.5 shrink-0 min-w-[7rem]">
+        <Skeleton className="h-4 w-8" />
+        <Skeleton className="h-3 w-14" />
+      </div>
+      <div className="hidden md:flex flex-col items-end gap-1.5 shrink-0 min-w-[7rem]">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-3 w-16" />
+      </div>
+      <div className="flex flex-col items-end gap-1.5 shrink-0 min-w-[6rem]">
+        <Skeleton className="h-4 w-14" />
+        <Skeleton className="h-3 w-14" />
+      </div>
+    </div>
   );
 }
 

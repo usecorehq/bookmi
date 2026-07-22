@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { BookingDetailModal } from "@/components/dashboard/bookings/BookingDetailModal";
 import { useCustomer, useCustomerBookings } from "@/hooks/useCustomers";
 import { useHostServices } from "@/hooks/useHostServices";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { formatNaira } from "@/lib/utils";
 
 type Tab = "bookings" | "tips";
@@ -35,7 +36,7 @@ export default function CustomerDetailPage() {
       </Link>
 
       {customerQ.isPending ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <CustomerDetailSkeleton />
       ) : customerQ.isError ? (
         <ErrorState notFound={isNotFound(customerQ.error)} />
       ) : !customerQ.data ? (
@@ -234,7 +235,13 @@ function HistorySection({
   return (
     <div className="card p-6">
       {pending ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <ul className="divide-y divide-gray-200">
+          {Array.from({ length: 4 }, (_, i) => (
+            <li key={i}>
+              <HistoryRowSkeleton />
+            </li>
+          ))}
+        </ul>
       ) : rows.length === 0 ? (
         <div className="text-sm text-muted-foreground">{emptyLabel}</div>
       ) : (
@@ -321,6 +328,81 @@ function StatCard({
       </div>
       <div className="text-2xl font-bold tracking-tight">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+function CustomerDetailSkeleton() {
+  return (
+    <>
+      <div className="mb-6">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-4 w-56 mt-2" />
+      </div>
+
+      {/* Header card — avatar + contact */}
+      <div className="card p-6 mb-6">
+        <div className="flex items-start gap-4 flex-wrap">
+          <Skeleton className="w-16 h-16 shrink-0 rounded-full" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-5 w-40" />
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-3.5 w-36" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {Array.from({ length: 3 }, (_, i) => (
+          <StatCardSkeleton key={i} />
+        ))}
+      </div>
+
+      {/* Segmented pill tabs */}
+      <div className="mb-5 inline-flex bg-gray-100 p-1 gap-1">
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-7 w-16" />
+      </div>
+
+      <div className="card p-6">
+        <ul className="divide-y divide-gray-200">
+          {Array.from({ length: 4 }, (_, i) => (
+            <li key={i}>
+              <HistoryRowSkeleton />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
+}
+
+function StatCardSkeleton() {
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-2">
+        <Skeleton className="w-5 h-5" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+      <Skeleton className="h-7 w-20" />
+    </div>
+  );
+}
+
+function HistoryRowSkeleton() {
+  return (
+    <div className="py-3 flex items-center justify-between gap-4">
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-3 w-32" />
+      </div>
+      <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton className="h-3 w-12" />
+      </div>
     </div>
   );
 }

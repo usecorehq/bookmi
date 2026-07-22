@@ -4,6 +4,8 @@ import { z } from "zod";
 export const SECURITY_PURPOSES = [
   "refund_booking",
   "withdraw_funds",
+  "create_paycode",
+  "reveal_paycode",
 ] as const;
 export type SecurityChallengePurpose = (typeof SECURITY_PURPOSES)[number];
 

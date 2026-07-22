@@ -62,6 +62,15 @@ export function buildConfig(env: NodeJS.ProcessEnv) {
        * first one returned.
        */
       reservedAccountBankCode: env.MONNIFY_RESERVED_ACCOUNT_BANK_CODE || undefined,
+      /**
+       * Rollout toggle for the real Paycode API (`POST /api/v1/paycode` and
+       * siblings) in `PaycodeService`. Defaults to `false` — every
+       * deployment keeps fabricating a mock paycode until this is
+       * explicitly set to `true` after a sandbox smoke test.
+       */
+      usePaycodeApi: (env.MONNIFY_USE_PAYCODE_API ?? "false") === "true",
+      /** How long a freshly-created paycode stays redeemable before the background sweep expires it. */
+      paycodeExpiryHours: Number(env.MONNIFY_PAYCODE_EXPIRY_HOURS ?? "24"),
     },
 
     platform: {

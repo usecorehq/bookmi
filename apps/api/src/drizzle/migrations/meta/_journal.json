@@ -78,6 +78,13 @@
       "when": 1784666026316,
       "tag": "0010_reserved_bank_accounts_and_wallet_topups",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784679584609,
+      "tag": "0011_paycodes",
+      "breakpoints": true
     }
   ]
 }

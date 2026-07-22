@@ -95,9 +95,11 @@ export interface ParsedWebhook {
    * `RefundWebhookService` instead of the payment-transaction finalize path.
    * `"reserved_account_credit"` routes it to `ReservedAccountWebhookService`
    * instead — a transfer landing in a host's reserved account never has a
-   * matching `payment_transactions` row.
+   * matching `payment_transactions` row. `"paycode"` routes it to
+   * `PaycodeWebhookService` — a redeemed/expired/cancelled paycode never has
+   * one either.
    */
-  domain?: "refund" | "reserved_account_credit";
+  domain?: "refund" | "reserved_account_credit" | "paycode";
   /**
    * For `domain: "reserved_account_credit"` — identifies which host's
    * reserved account was credited. Bookmi mints this as the host's own
@@ -244,6 +246,53 @@ export interface ReserveAccountResult {
   raw: unknown;
 }
 
+/**
+ * Offline payout — Monnify's Paycode API (`POST /api/v1/paycode`). A host
+ * generates a code redeemable for cash at any Moniepoint POS agent instead
+ * of a bank transfer. `paycodeReference` is client-minted, same idempotency
+ * role as `DisburseInput.reference`.
+ */
+export interface CreatePaycodeInput {
+  paycodeReference: string;
+  beneficiaryName: string;
+  amountMinor: number;
+  expiresAt: Date;
+}
+
+/**
+ * Shared result shape for every paycode operation (create/cancel/get/
+ * fetch/getClear) — Monnify returns the same object shape from all five
+ * endpoints, just with `paycode` masked except from the dedicated
+ * `/authorize` (getClearPaycode) call, surfaced here as `clearPaycode`.
+ */
+export interface PaycodeResult {
+  paycodeReference: string;
+  transactionReference: string;
+  beneficiaryName: string;
+  amountMinor: number;
+  feeMinor?: number;
+  status: "pending" | "success" | "expired" | "cancelled";
+  expiresAt?: Date;
+  /** Monnify's own masked digits (e.g. from create/get/cancel). Safe to persist. */
+  maskedPaycode?: string;
+  /** Only populated by `getClearPaycode` — NEVER persist this. */
+  clearPaycode?: string;
+  raw: unknown;
+}
+
+export interface FetchPaycodesInput {
+  transactionReference?: string;
+  beneficiaryName?: string;
+  transactionStatus?: string;
+  from?: Date;
+  to?: Date;
+}
+
+export interface FetchPaycodesResult {
+  items: PaycodeResult[];
+  raw: unknown;
+}
+
 export interface PaymentProvider {
   readonly code: PaymentProviderCode;
 
@@ -297,6 +346,18 @@ export interface PaymentProvider {
    * flag is off.
    */
   reserveAccount?(input: ReserveAccountInput): Promise<ReserveAccountResult>;
+
+  /**
+   * Offline-payout (Paycode) helpers. Providers that don't support this omit
+   * all five — `PaycodeService` falls back to a mocked paycode when either
+   * the provider or the `MONNIFY_USE_PAYCODE_API` flag is off, same posture
+   * as `reserveAccount?`.
+   */
+  createPaycode?(input: CreatePaycodeInput): Promise<PaycodeResult>;
+  cancelPaycode?(paycodeReference: string): Promise<PaycodeResult>;
+  getPaycode?(paycodeReference: string): Promise<PaycodeResult>;
+  getClearPaycode?(paycodeReference: string): Promise<PaycodeResult>;
+  fetchPaycodes?(input: FetchPaycodesInput): Promise<FetchPaycodesResult>;
 }
 
 export const PAYMENT_PROVIDERS = Symbol("PAYMENT_PROVIDERS");

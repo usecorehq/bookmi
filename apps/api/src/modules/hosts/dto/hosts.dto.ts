@@ -246,6 +246,21 @@ export const WithdrawSchema = z
   .strict();
 export class WithdrawDto extends createZodDto(WithdrawSchema) {}
 
+// ─── Paycode (offline payout) ───────────────────────────────────────────
+
+/**
+ * POST /hosts/me/wallet/paycodes — generate a paycode redeemable for cash
+ * at a Moniepoint POS agent. Same shape as `WithdrawSchema` — destination +
+ * OTP + idempotency key are headers, not body fields (see
+ * `PaycodeController.create`).
+ */
+export const CreatePaycodeSchema = z
+  .object({
+    amountKobo: z.number().int().positive(),
+  })
+  .strict();
+export class CreatePaycodeDto extends createZodDto(CreatePaycodeSchema) {}
+
 // ─── Reserved account activation ───────────────────────────────────────
 
 /**

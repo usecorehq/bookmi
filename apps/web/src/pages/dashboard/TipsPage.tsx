@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useHostBookings } from "@/hooks/useHostBookings";
 import { useHostServices } from "@/hooks/useHostServices";
+import { StatusPill } from "@/components/dashboard/bookings/BookingRow";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { formatNaira } from "@/lib/utils";
 import type { Booking, Service } from "@bookmi/shared-types";
 
@@ -27,9 +29,14 @@ export default function TipsPage() {
 
   const services = servicesQ.data ?? [];
   const tips = tipsQ.data ?? [];
+  // A tip row exists the moment checkout is initiated — pending/failed
+  // Monnify payments land here too, so only "confirmed" ones are real money.
+  // Everything else still shows in the list below (with its real status)
+  // for visibility, it just doesn't count toward "received."
+  const confirmedTips = useMemo(() => tips.filter((t) => t.status === "confirmed"), [tips]);
   const totalKobo = useMemo(
-    () => tips.reduce((sum, t) => sum + t.amountKobo, 0),
-    [tips],
+    () => confirmedTips.reduce((sum, t) => sum + t.amountKobo, 0),
+    [confirmedTips],
   );
 
   return (
@@ -40,12 +47,26 @@ export default function TipsPage() {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <SummaryCard label="Tips received" value={String(tips.length)} />
-        <SummaryCard label="Total collected" value={formatNaira(totalKobo)} />
-        <SummaryCard
-          label="Average tip"
-          value={tips.length ? formatNaira(Math.round(totalKobo / tips.length)) : "—"}
-        />
+        {tipsQ.isPending ? (
+          <>
+            <SummaryCardSkeleton />
+            <SummaryCardSkeleton />
+            <SummaryCardSkeleton />
+          </>
+        ) : (
+          <>
+            <SummaryCard label="Tips received" value={String(confirmedTips.length)} />
+            <SummaryCard label="Total collected" value={formatNaira(totalKobo)} />
+            <SummaryCard
+              label="Average tip"
+              value={
+                confirmedTips.length
+                  ? formatNaira(Math.round(totalKobo / confirmedTips.length))
+                  : "—"
+              }
+            />
+          </>
+        )}
       </div>
 
       <div className="card p-4 mb-4">
@@ -64,7 +85,11 @@ export default function TipsPage() {
 
       <div className="card p-4">
         {tipsQ.isPending ? (
-          <div className="text-sm text-muted-foreground">Loading…</div>
+          <ul className="divide-y divide-gray-200">
+            {Array.from({ length: 5 }, (_, i) => (
+              <TipRowSkeleton key={i} />
+            ))}
+          </ul>
         ) : tipsQ.isError ? (
           <div className="text-sm text-red-700">Couldn't load tips. Try again in a moment.</div>
         ) : tips.length === 0 ? (
@@ -90,6 +115,36 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
       </div>
       <div className="text-2xl font-bold tracking-tight">{value}</div>
     </div>
+  );
+}
+
+function SummaryCardSkeleton() {
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-2">
+        <Skeleton className="w-5 h-5 rounded-full" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+      <Skeleton className="h-7 w-20" />
+    </div>
+  );
+}
+
+function TipRowSkeleton() {
+  return (
+    <li className="py-4 flex items-center justify-between gap-4">
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-4 w-28" />
+        </div>
+        <Skeleton className="h-3 w-44" />
+      </div>
+      <div className="text-right shrink-0 space-y-2">
+        <Skeleton className="h-4 w-16 ml-auto" />
+        <Skeleton className="h-3 w-14 ml-auto" />
+      </div>
+    </li>
   );
 }
 
@@ -135,8 +190,8 @@ function TipRow({ tip, services }: { tip: Booking; services: Service[] }) {
       </div>
       <div className="text-right shrink-0">
         <div className="text-sm font-semibold">{formatNaira(tip.amountKobo)}</div>
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">
-          Received
+        <div className="mt-0.5">
+          <StatusPill status={tip.status} />
         </div>
       </div>
     </>

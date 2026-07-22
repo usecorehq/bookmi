@@ -70,6 +70,18 @@ interface HashInputs {
 /** Sentinel prev_hash for a host's very first entry. */
 const GENESIS_HASH = "GENESIS";
 
+/** Optional narrowing for `list`/`listForUser` — the Transactions page's filter bar. */
+export interface LedgerListFilters {
+  type?: LedgerEntryType;
+  sourceType?: LedgerSourceType;
+  sourceMode?: LedgerSourceMode;
+  status?: LedgerEntryStatus;
+  from?: Date;
+  to?: Date;
+}
+
+export type LedgerListOptions = LedgerListFilters & { limit?: number; offset?: number };
+
 /**
  * Immutable, hash-chained wallet ledger. Every credit + debit against a
  * host wallet flows through appendEntry inside the same transaction that
@@ -286,8 +298,8 @@ export class WalletLedgerService {
   /** Same as list, but resolves the host from the authenticated user. */
   async listForUser(
     userId: string,
-    opts: { limit?: number; offset?: number } = {},
-  ): Promise<WalletLedgerEntry[]> {
+    opts: LedgerListOptions = {},
+  ): Promise<{ items: WalletLedgerEntry[]; total: number }> {
     const hostId = await this.resolveHostId(userId);
     return this.list(hostId, opts);
   }
@@ -312,20 +324,43 @@ export class WalletLedgerService {
   }
 
   /**
-   * Read-only list for the dashboard "recent transactions" panel.
-   * Ordered newest-first.
+   * Read-only list, newest-first — powers both the dashboard's small
+   * "Recent transactions" widget (no filters, `limit: 10`) and the full
+   * paginated Transactions statement-of-account page (filters + `total`
+   * for page-count rendering). Filters are all optional and purely
+   * additive — an unfiltered call behaves exactly as before.
    */
   async list(
     hostId: string,
-    opts: { limit?: number; offset?: number } = {},
-  ): Promise<WalletLedgerEntry[]> {
-    return this.db
+    opts: LedgerListOptions = {},
+  ): Promise<{ items: WalletLedgerEntry[]; total: number }> {
+    const where = this.buildWhere(hostId, opts);
+
+    const items = await this.db
       .select()
       .from(walletLedger)
-      .where(eq(walletLedger.hostId, hostId))
+      .where(where)
       .orderBy(desc(walletLedger.createdAt), desc(walletLedger.id))
       .limit(opts.limit ?? 25)
       .offset(opts.offset ?? 0);
+
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(walletLedger)
+      .where(where);
+
+    return { items, total: row?.count ?? 0 };
+  }
+
+  private buildWhere(hostId: string, filters: LedgerListFilters) {
+    const conditions = [eq(walletLedger.hostId, hostId)];
+    if (filters.type) conditions.push(eq(walletLedger.type, filters.type));
+    if (filters.sourceType) conditions.push(eq(walletLedger.sourceType, filters.sourceType));
+    if (filters.sourceMode) conditions.push(eq(walletLedger.sourceMode, filters.sourceMode));
+    if (filters.status) conditions.push(eq(walletLedger.status, filters.status));
+    if (filters.from) conditions.push(gte(walletLedger.createdAt, filters.from));
+    if (filters.to) conditions.push(lte(walletLedger.createdAt, filters.to));
+    return and(...conditions);
   }
 
   /**

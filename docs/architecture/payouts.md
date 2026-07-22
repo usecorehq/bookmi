@@ -12,7 +12,8 @@
 | `bookmi.payouts` | withdrawal attempt | State machine for a host pulling money out to their bank. |
 | `bookmi.refunds` | refund attempt | State machine for sending a customer's money back. Mirrors `payouts` plus `booking_id` + `reason`. |
 | `bookmi.wallet_ledger` | balance-changing event | Append-only, hash-chained. The source of truth for "why did this balance change." |
-| `bookmi.security_challenges` | OTP challenge | Backs the 2FA gate in front of both withdraw and refund. |
+| `bookmi.security_challenges` | OTP challenge | Backs the 2FA gate in front of withdraw, refund, and paycode create/reveal. |
+| `bookmi.paycodes` | offline-payout attempt | State machine for a host cashing out via a Monnify Paycode redeemable at a Moniepoint POS agent, instead of a bank transfer. |
 
 `host_wallets.balance_kobo` is a **cache** — it's always equal to the `balance_after_kobo` of the host's most recent `wallet_ledger` row. The ledger is the record; the wallet row is just the fast-read denormalization of its tip.
 
@@ -125,26 +126,105 @@ Only reachable once a host has a *real* reserved account (`MONNIFY_USE_RESERVED_
 
 The exact `RESERVED_ACCOUNT_TRANSACTION` webhook field names (particularly `product.reference` for the account reference) are flagged as an open risk in `monnify.provider.ts`'s `parseReservedAccountWebhook()` comment — inferred from Monnify's docs, not a captured real payload. Smoke-test against sandbox before enabling the flag in production.
 
+## Paycodes (offline payout)
+
+`PaycodeService` (`apps/api/src/modules/hosts/services/paycode.service.ts`) is a second host payout method alongside withdrawals: instead of a bank transfer, the host generates a Monnify **Paycode** — a code redeemable for cash at any Moniepoint POS agent. Aimed at hosts who need cash but have no ATM card, or who are in a low-connectivity area where mobile banking isn't reliable.
+
+### Sequence
+
+`createPaycode()` follows the identical insert-first-claim → OTP-gate → advisory-lock-and-debit shape as `withdraw()`, against a new `paycodes` table:
+
+1. **Insert-first idempotency claim** — a `paycodes` row (`status: "pending"`, a bookmi-minted `paycode_reference`, `expires_at` computed from `MONNIFY_PAYCODE_EXPIRY_HOURS`) is inserted before Monnify is touched, keyed on `(host_id, idempotency_key)` — same partial-unique-index dedup as `payouts`.
+2. **OTP gate** — `SecurityService.verifyAndConsume(userId, "create_paycode", otpCode)`. A dedicated purpose, distinct from `withdraw_funds` — creating a paycode is a different money-out action worth its own challenge. Failing here deletes the claim row, same as withdraw.
+3. **Advisory lock + create**, inside one transaction (lock key `hashtextextended(hostId, 3)` — a distinct namespace from withdraw's `2`, so the two payout methods don't serialize against each other unnecessarily):
+   - Re-read balance under the lock; reject if insufficient.
+   - Branch on `config.get("monnify.usePaycodeApi")`: real `provider.createPaycode()` (Monnify `POST /api/v1/paycode`) or a mock that deterministically derives an 8-digit code from the paycode's own reference (HMAC-based — never persisted, never logged).
+   - `WalletLedgerService.appendEntry()` — a `debit` entry, `sourceType: "paycode"`, `sourceMode: "paycode_redemption"`, `status: "pending"`.
+4. Any failure after the claim row exists marks it `failed` (no compensating credit needed — the transaction rolled back, so no debit was ever posted).
+
+**Cancel and expiry both reverse the hold**, not just record a status: `terminatePaycode()` flips the paycode to `cancelled`/`expired`, flips the original debit's ledger entry to the matching status (`cancelled`/`failed` — `wallet_ledger` has no `expired` value, so an expired paycode's original debit is recorded as `failed`), and appends a compensating **credit** with the *same* `sourceId` — the exact `RefundWebhookService` failed-refund reversal pattern, reused here. A `WHERE status = 'pending'` guard on the terminating update makes this idempotent against a race (e.g. the sweep and a concurrent cancel both firing) — only one wins, the other no-ops rather than double-crediting.
+
+- **Cancel** (`cancelPaycode()`) — host-initiated, only while `status: "pending"`. No OTP — cancelling only returns money to the host's own balance, the same risk profile as a webhook-driven compensating credit.
+- **Expiry** — reconciled two ways, both converging on `terminatePaycode()`:
+  - **Lazily**, whenever a host's own paycodes are read (`listPaycodes`/`getPaycode`) — so the dashboard is always consistent the moment a host looks.
+  - **On a fixed 5-minute background sweep**, across every host (`reconcileAllExpiredPaycodes()`), so a host's balance is corrected even if they never reopen the app. See "Background sweep" below.
+  - Either path, when the live API is on, confirms the true status via `provider.getPaycode()` **before** assuming expiry — guards the race where the host redeemed the code seconds before it lapsed.
+
+### Reveal (Get Clear Paycode) — a second OTP purpose
+
+`GET /hosts/me/wallet/paycodes/:id/reveal` returns the actual redeemable digits, gated by a **second, distinct** OTP purpose: `reveal_paycode`. Creating the paycode already required one OTP (the money-movement gate, mirroring withdraw); revealing it requires a fresh one too, because anyone who sees the clear code can walk into an agent and cash it — disclosure is its own risk, separate from the debit. The clear code is never persisted: it's fetched live from Monnify's `/authorize` endpoint on demand, or deterministically re-derived in mock mode. Only the already-masked value (safe to persist) lives on the `paycodes` row.
+
+### Background sweep
+
+`PaycodeSweepScheduler` (`apps/api/src/modules/hosts/services/paycode-sweep.scheduler.ts`) enqueues a BullMQ *repeatable* job every 5 minutes on process boot (deduped by job id, so re-adding it on every boot is a no-op); `PaycodeSweepProcessor` consumes it and calls `PaycodeService.reconcileAllExpiredPaycodes()`. Reuses the Redis/BullMQ infra already wired for the email queue (`apps/api/src/common/queues/`) — no new scheduling dependency. Visible on the existing Bull Board admin UI (`/api/admin/queues`) for free.
+
+### API surface
+
+Routes: `apps/api/src/modules/hosts/controllers/paycode.controller.ts`, mounted at `hosts/me/wallet/paycodes`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/` | Create. Body `{ amountKobo }`. **Requires** `x-idempotency-key` + `x-otp-code` (`create_paycode` purpose) headers. |
+| GET | `/` | List the host's paycodes, newest first. Lazily reconciles any expired-but-unvisited ones first. |
+| GET | `/:id` | Masked detail for one paycode. |
+| GET | `/:id/reveal` | Unmasked, redeemable code. **Requires** `x-otp-code` (`reveal_paycode` purpose) header. |
+| DELETE | `/:id` | Cancel — only while `status: "pending"`. No OTP. |
+
+### Provider call — Monnify's Paycode API, confirmed against the live API reference
+
+`MonnifyProvider` (`apps/api/src/modules/payments/providers/monnify.provider.ts`) implements all five Paycode endpoints, confirmed against Monnify's live API reference (worked request/response examples, not inferred):
+
+| Monnify endpoint | Provider method |
+|---|---|
+| `POST /api/v1/paycode` | `createPaycode()` |
+| `GET /api/v1/paycode` | `fetchPaycodes()` |
+| `GET /api/v1/paycode/{paycodeReference}` | `getPaycode()` (masked) |
+| `DELETE /api/v1/paycode/{paycodeReference}` | `cancelPaycode()` |
+| `GET /api/v1/paycode/{paycodeReference}/authorize` | `getClearPaycode()` (unmasked) |
+
+Gated behind `MONNIFY_USE_PAYCODE_API` / `monnify.usePaycodeApi` (default `false`) — every deployment fabricates a mock paycode until this is explicitly set to `true` after a sandbox smoke test, same rollout-flag convention as refunds and reserved accounts.
+
+**Open risk, flagged in code, not guessed:** Monnify's docs confirm the create/get/cancel/authorize/fetch request-response shapes verbatim, but don't show a worked *webhook* payload for paycode redemption/expiry — unlike every other domain in this file, this one has no confirmed webhook contract at all, only a best-guess heuristic (`parseWebhook` routes on the presence of a `paycodeReference` field). This does **not** block correctness: the lazy + scheduled-sweep reconciliation above never depends on a webhook arriving. `PaycodeWebhookService` (`apps/api/src/modules/payments/services/paycode-webhook.service.ts`) is wired as a best-effort fast path only — routed via `parsedWebhook.domain === "paycode"` — and duplicates `terminatePaycode()`'s shape rather than sharing it, for the same reason `RefundWebhookService` can't share code with `HostBookingsService.refundBooking()`: `PaymentsModule` can't depend back on `HostsModule`.
+
+### Frontend
+
+No dashboard UI yet for creating/cancelling/revealing paycodes (the backend API exists; a `WithdrawModal`-style flow is a natural follow-up). The [Transactions page](#transactions-statement-of-account) below does surface paycode activity once created — debits, cancellations, and expiries all show up on the ledger statement with a `Paycode` source label and, where Monnify reports one, the fee in the entry's memo.
+
+## Transactions (statement of account)
+
+`GET /hosts/me/ledger` (`apps/api/src/modules/hosts/controllers/host-ledger.controller.ts`) is the read surface over `wallet_ledger` — every credit and debit against a host's wallet, across every source (bookings, tips, withdrawals, refunds, wallet top-ups, paycodes). Two consumers:
+
+- The dashboard home's small "Recent transactions" widget (`useLedger.ts`, fixed `limit: 10`, no filters).
+- The full **Transactions** page (`apps/web/src/pages/dashboard/TransactionsPage.tsx`, `useTransactions.ts`) — paginated (10/page) and filterable by `type` (credit/debit), `sourceType`, `sourceMode`, `status`, and date range. The response includes `total` (a paired `count(*)` query using the same filter clause) so the page can render "Page X of Y." Purely additive to the existing endpoint — the dashboard widget only reads `.items` and is unaffected.
+
+Every row already carries `balance_before_kobo`/`balance_after_kobo` (the ledger's own tamper-evidence fields — see [the wallet ledger doc](wallet-ledger.md)), so the statement shows exactly what a host's balance was before and after each event, with no separate reconciliation needed.
+
 ## Files
 
 | File | What it holds |
 |---|---|
-| `apps/api/src/drizzle/schema.ts` | `host_wallets`, `payouts`, `refunds`, `reserved_bank_accounts`, `wallet_topups`, `wallet_ledger`, `security_challenges` table definitions; `payment_transactions.provider_transaction_id` |
+| `apps/api/src/drizzle/schema.ts` | `host_wallets`, `payouts`, `paycodes`, `refunds`, `reserved_bank_accounts`, `wallet_topups`, `wallet_ledger`, `security_challenges` table definitions; `payment_transactions.provider_transaction_id` |
 | `apps/api/src/drizzle/migrations/0005_moneyout_idempotency_otp.sql` | Idempotency keys on `payouts`/`refunds` + `security_challenges` |
 | `apps/api/src/drizzle/migrations/0006_wallet_ledger.sql` | The `wallet_ledger` table |
 | `apps/api/src/drizzle/migrations/0007_payment_transaction_provider_id.sql` | `payment_transactions.provider_transaction_id` — Monnify's own transaction reference, captured so the dedicated refund API can address the original transaction |
 | `apps/api/src/modules/hosts/services/wallet-ledger.service.ts` | `appendEntry`, `updateStatus`, hash computation |
 | `apps/api/src/modules/hosts/services/host-wallet.service.ts` | Wallet snapshot, payout-account setup, `withdraw()`, `activateReservedAccount()` — branches on `monnify.useReservedAccountApi` |
 | `apps/api/src/modules/hosts/services/host-bookings.service.ts` | `refundBooking()` — branches on `monnify.useRefundApi` |
+| `apps/api/src/modules/hosts/services/paycode.service.ts` | `createPaycode()`, `cancelPaycode()`, `revealPaycode()`, `listPaycodes`/`getPaycode` (with lazy reconciliation), `reconcileAllExpiredPaycodes()` — branches on `monnify.usePaycodeApi` |
+| `apps/api/src/modules/hosts/services/paycode-sweep.processor.ts` / `paycode-sweep.scheduler.ts` | The 5-minute background expiry sweep (BullMQ) |
 | `apps/api/src/modules/hosts/controllers/host-wallet.controller.ts` | `hosts/me/wallet/*` routes |
-| `apps/api/src/modules/hosts/dto/hosts.dto.ts` | `SavePayoutAccountSchema`, `WithdrawSchema`, `RefundBookingSchema`, `ActivateReservedAccountSchema` |
+| `apps/api/src/modules/hosts/controllers/paycode.controller.ts` | `hosts/me/wallet/paycodes/*` routes |
+| `apps/api/src/modules/hosts/controllers/host-ledger.controller.ts` | `GET hosts/me/ledger` — filtered/paginated statement of account |
+| `apps/api/src/modules/hosts/dto/hosts.dto.ts` | `SavePayoutAccountSchema`, `WithdrawSchema`, `CreatePaycodeSchema`, `RefundBookingSchema`, `ActivateReservedAccountSchema` |
 | `apps/api/src/modules/security/security.service.ts` | OTP issue/verify, rate limiting, self-lock |
 | `apps/api/src/modules/security/security.controller.ts` | `POST hosts/me/security/otp/challenge` |
-| `apps/api/src/modules/payments/providers/payment-provider.interface.ts` | `disburse`, `refund`, `reserveAccount`, `listBanks`, `resolveBankAccount` — the disbursement half of the provider contract |
+| `apps/api/src/modules/payments/providers/payment-provider.interface.ts` | `disburse`, `refund`, `reserveAccount`, `createPaycode`/`cancelPaycode`/`getPaycode`/`getClearPaycode`/`fetchPaycodes`, `listBanks`, `resolveBankAccount` — the disbursement half of the provider contract |
 | `apps/api/src/modules/payments/services/refund-webhook.service.ts` | `RefundWebhookService.reconcile()` — `SUCCESSFUL_REFUND`/`FAILED_REFUND` reconciliation |
 | `apps/api/src/modules/payments/services/reserved-account-webhook.service.ts` | `ReservedAccountWebhookService.reconcile()` — `RESERVED_ACCOUNT_TRANSACTION` reconciliation into `wallet_topups` + `wallet_ledger` |
-| `apps/api/src/config/configuration.ts` | `monnify.useRefundApi` / `monnify.useReservedAccountApi` — the rollout flags |
+| `apps/api/src/modules/payments/services/paycode-webhook.service.ts` | `PaycodeWebhookService.reconcile()` — best-effort paycode webhook reconciliation |
+| `apps/api/src/config/configuration.ts` | `monnify.useRefundApi` / `monnify.useReservedAccountApi` / `monnify.usePaycodeApi` — the rollout flags |
 | `packages/shared-types/src/payment.ts` | `Payout`, `PayoutStatus` types |
+| `packages/shared-types/src/paycode.ts` | `Paycode`, `PaycodeStatus` types |
 | `packages/shared-types/src/wallet-ledger.ts` | Ledger entry types shared with the frontend |
 
 ## What's not built yet
@@ -153,6 +233,8 @@ The exact `RESERVED_ACCOUNT_TRANSACTION` webhook field names (particularly `prod
 - **Disbursement status polling for payouts** — today any non-`failed` initial response from `disburse()` is treated as final; Monnify can settle asynchronously. (Refunds no longer have this gap once `MONNIFY_USE_REFUND_API` is on: the dedicated refund API's `SUCCESSFUL_REFUND`/`FAILED_REFUND` webhooks resolve a `processing` refund for real — see [Refund-webhook reconciliation](#refund-webhook-reconciliation) above. Payouts still lack an equivalent poller/webhook.)
 - **Reserved-account webhook field names unverified** — `RESERVED_ACCOUNT_TRANSACTION`'s `eventData` shape (particularly `product.reference`) in `parseReservedAccountWebhook()` is inferred from Monnify's docs, not a captured real payload. Smoke-test against sandbox and adjust field names if they differ before flipping `MONNIFY_USE_RESERVED_ACCOUNT_API` on in production.
 - **Reserved-account retry-with-same-reference behavior unconfirmed** — whether a retried `reserveAccount()` call after a partial failure (e.g. Monnify succeeded but our DB write didn't) upserts the existing reserved account or errors on a duplicate `accountReference` isn't covered by the docs sample this integration was built from — worth a sandbox smoke test.
+- **Paycode webhook contract unconfirmed** — no worked webhook payload exists in Monnify's public docs for paycode redemption/expiry (see the Paycodes section above). The lazy + scheduled-sweep reconciliation doesn't depend on it, but the heuristic `parseWebhook` routing should be corrected against a real sandbox payload before relying on the fast-path webhook reconciler in production.
+- **No dashboard UI to create/cancel/reveal a paycode yet** — the backend API is complete; only the read side (paycode activity showing up on the Transactions statement) has a frontend today.
 
 ## Related
 
