@@ -1,22 +1,20 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
-interface Props {
-  /** When true, requires the user has completed onboarding (has a host_profile row). */
-  requireOnboarded?: boolean;
-}
-
 /**
- * Route wrapper. Three states:
+ * Route wrapper. Two states:
  *   - Still verifying session → transparent placeholder (avoids flashing login)
  *   - Not signed in → /auth/login, preserving where they were headed
- *   - Signed in but no profile + `requireOnboarded` → /onboarding
  *   - Otherwise → render children
  *
- * Reserved for host-facing routes only; the public `/:slug` page is unguarded.
+ * Only guards `/onboarding` today — `/dashboard/*` does its own auth-gating
+ * inside `DashboardLayout` so its persistent sidebar shell can render
+ * immediately on a hard refresh instead of this generic, chrome-less
+ * "Loading…" screen. Keep this component simple; if a second standalone
+ * (no-shell) authed route shows up, this is still the right wrapper for it.
  */
-export function RequireAuth({ requireOnboarded = false }: Props) {
-  const { loading, session, profile } = useAuth();
+export function RequireAuth() {
+  const { loading, session } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -34,10 +32,6 @@ export function RequireAuth({ requireOnboarded = false }: Props) {
         replace
       />
     );
-  }
-
-  if (requireOnboarded && !profile) {
-    return <Navigate to="/onboarding" replace />;
   }
 
   return <Outlet />;

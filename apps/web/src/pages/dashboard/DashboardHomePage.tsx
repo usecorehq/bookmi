@@ -13,6 +13,7 @@ import {
   RefreshCcw,
   Banknote,
   Landmark,
+  Receipt,
 } from "lucide-react";
 import type {
   DailyGrossBucket,
@@ -22,6 +23,7 @@ import { PageHeader } from "@/components/layouts/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHostWallet } from "@/hooks/useHostWallet";
 import { useDailyGross, useLedger } from "@/hooks/useLedger";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { formatNaira } from "@/lib/utils";
 
 export default function DashboardHomePage() {
@@ -115,7 +117,11 @@ function RecentTransactionsCard({
         </Link>
       </div>
       {isPending ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <ul className="divide-y divide-gray-200">
+          {Array.from({ length: 5 }, (_, i) => (
+            <LedgerRowSkeleton key={i} />
+          ))}
+        </ul>
       ) : rows.length === 0 ? (
         <div className="text-sm text-muted-foreground">
           No transactions yet. Share your page to get started.
@@ -128,6 +134,25 @@ function RecentTransactionsCard({
         </ul>
       )}
     </div>
+  );
+}
+
+function LedgerRowSkeleton() {
+  return (
+    <li className="py-3 flex items-center gap-3">
+      <Skeleton className="w-9 h-9 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-3.5 w-24" />
+          <Skeleton className="h-3.5 w-14" />
+        </div>
+        <Skeleton className="h-3 w-40" />
+      </div>
+      <div className="text-right shrink-0 space-y-1.5">
+        <Skeleton className="h-3.5 w-16 ml-auto" />
+        <Skeleton className="h-3 w-14 ml-auto" />
+      </div>
+    </li>
   );
 }
 
@@ -238,7 +263,15 @@ function DailyGrossChartCard({
       </div>
 
       {isPending ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="h-40 flex items-end gap-[3px]" aria-hidden>
+          {Array.from({ length: 30 }, (_, i) => (
+            <Skeleton
+              key={i}
+              className="flex-1 h-full rounded-none"
+              style={{ height: `${20 + ((i * 37) % 70)}%` }}
+            />
+          ))}
+        </div>
       ) : (
         <div className="relative">
           <div
@@ -328,6 +361,11 @@ const MODE_META: Record<WalletLedgerEntry["sourceMode"], ModeMeta> = {
     label: "Wallet top-up",
     icon: <Landmark className="w-4 h-4" />,
     fallbackMemo: "Bank transfer to reserved account",
+  },
+  paycode_redemption: {
+    label: "Paycode",
+    icon: <Receipt className="w-4 h-4" />,
+    fallbackMemo: "Offline payout paycode",
   },
 };
 

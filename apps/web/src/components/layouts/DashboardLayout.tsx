@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { NavLink, Outlet, Link } from "react-router-dom";
+import { NavLink, Navigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutGrid,
   Tag,
@@ -7,6 +7,7 @@ import {
   Coffee,
   Users,
   Wallet,
+  Receipt,
   UserCircle,
   ExternalLink,
   LogOut,
@@ -14,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -31,6 +33,7 @@ const PRIMARY_NAV: NavItem[] = [
   { to: "/dashboard/services", label: "Services", icon: Tag },
   { to: "/dashboard/customers", label: "Customers", icon: Users },
   { to: "/dashboard/wallet", label: "Wallet", icon: Wallet },
+  { to: "/dashboard/transactions", label: "Transactions", icon: Receipt },
   { to: "/dashboard/profile", label: "Profile", icon: UserCircle },
 ];
 
@@ -39,10 +42,32 @@ const PRIMARY_NAV: NavItem[] = [
  * qore-menu's DashboardLayout supports business switcher, workspace
  * scope, permission gates, feature flags, and terminal mode; bookmi
  * needs none of that today.
+ *
+ * Also owns its own auth-gating (rather than a separate <RequireAuth>
+ * wrapper) so the sidebar — which needs no auth-resolved data, just the
+ * static nav list — can render immediately on a hard refresh, with a
+ * generic shimmer in the content area standing in for <Outlet/> until the
+ * session/profile check resolves. That replaces what used to be three
+ * jarring, visually distinct states in a row (blank → plain "Loading…"
+ * text with no chrome → full layout snapping in) with one persistent
+ * shell the whole time.
  */
 export function DashboardLayout() {
-  const { profile, signOut } = useAuth();
+  const { loading, session, profile, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+
+  if (!loading && !session) {
+    return (
+      <Navigate
+        to={`/auth/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}
+        replace
+      />
+    );
+  }
+  if (!loading && !profile) {
+    return <Navigate to="/onboarding" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -126,9 +151,48 @@ export function DashboardLayout() {
 
         <main className="flex-1 min-w-0">
           <div className="max-w-6xl mx-auto p-4 md:p-8">
-            <Outlet />
+            {loading ? <DashboardContentSkeleton /> : <Outlet />}
           </div>
         </main>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Generic stand-in for whatever page is about to mount — shown only
+ * during the brief session/profile-resolution window on a hard refresh,
+ * before we even know which route we're rendering. Each page then takes
+ * over with its own precisely-shaped skeleton once its own queries start
+ * (e.g. TipsPage's TipRowSkeleton) — this is just the handoff.
+ */
+function DashboardContentSkeleton() {
+  return (
+    <div>
+      <div className="mb-6">
+        <Skeleton className="h-7 w-40 mb-2" />
+        <Skeleton className="h-4 w-64" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="card p-5">
+            <Skeleton className="h-3 w-24 mb-3" />
+            <Skeleton className="h-7 w-28" />
+          </div>
+        ))}
+      </div>
+      <div className="card p-4">
+        <ul className="divide-y divide-gray-200">
+          {Array.from({ length: 5 }, (_, i) => (
+            <li key={i} className="py-4 flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="h-4 w-16 shrink-0" />
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );

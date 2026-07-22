@@ -17,6 +17,7 @@ import ServicesPage from "@/pages/dashboard/ServicesPage";
 import BookingsPage from "@/pages/dashboard/BookingsPage";
 import TipsPage from "@/pages/dashboard/TipsPage";
 import WalletPage from "@/pages/dashboard/WalletPage";
+import TransactionsPage from "@/pages/dashboard/TransactionsPage";
 import CustomersPage from "@/pages/dashboard/CustomersPage";
 import CustomerDetailPage from "@/pages/dashboard/CustomerDetailPage";
 import HostPublicPage from "@/pages/public/HostPublicPage";
@@ -26,8 +27,8 @@ import BookingPaymentPage from "@/pages/pay/BookingPaymentPage";
  * Bookmi routes:
  *   /                                  landing
  *   /auth/{login|signup|forgot-password|verify-otp|update-password|callback}
- *   /onboarding                        (requireAuth)
- *   /dashboard/*                       (requireAuth + requireOnboarded) → DashboardLayout
+ *   /onboarding                        (RequireAuth)
+ *   /dashboard/*                       (self-guarded in DashboardLayout) → DashboardLayout
  *   /:slug                             public host page (later)
  *   /:slug/checkout/:serviceId         checkout (later)
  *
@@ -52,17 +53,22 @@ export function AppRouter() {
             <Route path="/onboarding" element={<OnboardingPage />} />
           </Route>
 
-          <Route element={<RequireAuth requireOnboarded />}>
-            <Route path="/dashboard" element={<DashboardLayout />}>
-              <Route index element={<DashboardHomePage />} />
-              <Route path="services" element={<ServicesPage />} />
-              <Route path="bookings" element={<BookingsPage />} />
-              <Route path="tips" element={<TipsPage />} />
-              <Route path="customers" element={<CustomersPage />} />
-              <Route path="customers/:id" element={<CustomerDetailPage />} />
-              <Route path="wallet" element={<WalletPage />} />
-              <Route path="profile" element={<ProfilePage />} />
-            </Route>
+          {/*
+            No <RequireAuth> wrapper here — DashboardLayout does its own
+            auth-gating so the sidebar shell can render immediately (even
+            mid session-check) instead of a separate, unstyled "Loading…"
+            screen flashing before it. See DashboardLayout.tsx.
+          */}
+          <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route index element={<DashboardHomePage />} />
+            <Route path="services" element={<ServicesPage />} />
+            <Route path="bookings" element={<BookingsPage />} />
+            <Route path="tips" element={<TipsPage />} />
+            <Route path="customers" element={<CustomersPage />} />
+            <Route path="customers/:id" element={<CustomerDetailPage />} />
+            <Route path="wallet" element={<WalletPage />} />
+            <Route path="transactions" element={<TransactionsPage />} />
+            <Route path="profile" element={<ProfilePage />} />
           </Route>
 
           <Route path="/pay/:bookingId" element={<BookingPaymentPage />} />

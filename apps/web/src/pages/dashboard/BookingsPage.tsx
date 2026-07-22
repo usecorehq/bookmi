@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays, Plus, Search } from "lucide-react";
 import type { BookingSource, BookingStatus } from "@bookmi/shared-types";
 import { PageHeader } from "@/components/layouts/DashboardLayout";
-import { BookingRow } from "@/components/dashboard/bookings/BookingRow";
+import { BookingRow, BookingRowSkeleton } from "@/components/dashboard/bookings/BookingRow";
 import { CalendarGrid } from "@/components/dashboard/bookings/CalendarGrid";
 import { NewBookingModal } from "@/components/dashboard/bookings/NewBookingModal";
 import {
@@ -178,7 +178,11 @@ function AllBookingsTab({
 
       <div className="card p-4">
         {bookingsQ.isPending ? (
-          <div className="text-sm text-muted-foreground">Loading…</div>
+          <div>
+            {Array.from({ length: 5 }, (_, i) => (
+              <BookingRowSkeleton key={i} />
+            ))}
+          </div>
         ) : bookings.length === 0 ? (
           <div className="text-sm text-muted-foreground py-8 text-center">
             No bookings match these filters.

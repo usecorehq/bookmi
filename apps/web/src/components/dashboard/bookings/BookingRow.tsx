@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Booking, Service } from "@bookmi/shared-types";
 import { formatNaira } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { BookingDetailModal } from "./BookingDetailModal";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -103,5 +104,26 @@ export function BookingRow({
         />
       )}
     </>
+  );
+}
+
+/** Shimmer row matching BookingRow's layout — used while a bookings query is `isPending`. */
+export function BookingRowSkeleton() {
+  return (
+    <div className="py-3 px-1 flex items-center justify-between gap-4 border-b border-gray-200 last:border-none">
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-3 w-14" />
+          <Skeleton className="h-3 w-12" />
+        </div>
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-3 w-48" />
+      </div>
+      <div className="text-right shrink-0 space-y-1.5">
+        <Skeleton className="h-4 w-16 ml-auto" />
+        <Skeleton className="h-3 w-14 ml-auto" />
+      </div>
+      <Skeleton className="w-4 h-4 shrink-0 rounded-full" />
+    </div>
   );
 }
