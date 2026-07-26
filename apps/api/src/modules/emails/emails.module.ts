@@ -4,20 +4,16 @@ import { MailerModule } from "@nestjs-modules/mailer";
 import { BullModule } from "@nestjs/bullmq";
 import { QUEUE_EMAILS } from "../../common/queues/queue.constants";
 import { EmailsService } from "./emails.service";
-import { EmailsProcessor } from "./emails.processor";
 import { EMAIL_PROVIDER } from "./providers/email-provider.interface";
 import { SmtpProvider } from "./providers/smtp.provider";
 
 /**
- * Email queue + producer + processor.
+ * Email queue producer + transport wiring.
  *
  * `EmailsService` is exported so any module can enqueue jobs — HTTP handlers,
- * cron services, purpose handlers. The `EmailsProcessor` is bound to the same
- * `QUEUE_EMAILS` and renders the template + speaks to the transport.
- *
- * Today producer + processor run in the same process. When we split web +
- * worker deploys (see qore-backend's WorkersModule + APP_ROLE pattern), only
- * the `@Processor` class moves — the producer stays put.
+ * cron services, purpose handlers. The matching `EmailsProcessor` lives in
+ * `workers.module.ts` so it only runs in the `APP_ROLE=worker` container;
+ * the web container just enqueues and returns.
  *
  * Transport is SMTP via `@nestjs-modules/mailer`, behind the `EmailProvider`
  * interface. Swapping to Resend/SES/SendGrid later is a one-file change:
@@ -51,7 +47,6 @@ import { SmtpProvider } from "./providers/smtp.provider";
   ],
   providers: [
     EmailsService,
-    EmailsProcessor,
     SmtpProvider,
     { provide: EMAIL_PROVIDER, useExisting: SmtpProvider },
   ],

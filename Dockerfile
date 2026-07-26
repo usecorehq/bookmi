@@ -38,6 +38,9 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4000
+# Same image, two roles: web serves HTTP on PORT; worker runs schedulers +
+# BullMQ consumers headless. Coolify overrides APP_ROLE per service.
+ENV APP_ROLE=web
 
 RUN apk add --no-cache curl tini
 

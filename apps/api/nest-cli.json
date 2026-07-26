@@ -17,6 +17,16 @@
         "outDir": "dist",
         "deleteOutDir": false
       }
+    },
+    "worker": {
+      "type": "application",
+      "root": "src",
+      "entryFile": "main.worker",
+      "sourceRoot": "src",
+      "compilerOptions": {
+        "outDir": "dist",
+        "deleteOutDir": false
+      }
     }
   }
 }

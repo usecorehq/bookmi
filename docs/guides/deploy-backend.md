@@ -5,9 +5,17 @@ The API ships as a single Docker image built from the root [`Dockerfile`](../../
 ## What the image does
 
 - **Build**: `turbo prune @bookmi/api --docker` isolates just the API's slice of the monorepo, then `pnpm --filter @bookmi/api build` compiles it, then `pnpm --filter @bookmi/api --prod --legacy deploy /app/pruned` produces a production-only `node_modules`.
-- **Runtime**: `node:22-alpine`, runs as the non-root `node` user, listens on `PORT` (default `4000`), exposes a Docker `HEALTHCHECK` that curls `GET /api/health` every 30s.
-- **Entrypoint** (`docker/entrypoint.sh`): runs `node dist/migrate.js` (bookmi's own Drizzle migrations) before starting the server, unless `SKIP_MIGRATIONS=true`. This means **the container migrates the DB on every boot** — safe because migrations are idempotent, but worth knowing if you're running multiple replicas (see below).
+- **Runtime**: `node:22-alpine`, runs as the non-root `node` user, listens on `PORT` (default `4000`), exposes a Docker `HEALTHCHECK` that curls `GET /api/health` every 30s (web) or short-circuits to `exit 0` (worker — headless).
+- **Entrypoint** (`docker/entrypoint.sh`): runs `node dist/migrate.js` (bookmi's own Drizzle migrations) before starting the process, unless `SKIP_MIGRATIONS=true`. Then dispatches on `APP_ROLE`:
+  - `APP_ROLE=web` (default) → `node dist/main.js` — HTTP API on `PORT`.
+  - `APP_ROLE=worker` → `node dist/main.worker.js` — headless: BullMQ consumers (email queue, paycode expiry sweep) + `@nestjs/schedule` runtime for any future `@Cron` decorators. No HTTP server, no Swagger, no Bull Board.
 - Env vars are **not** baked into the image — they're read from the process environment at runtime, so the same image works across dev/staging/prod by swapping the env set at deploy time (see `.dockerignore`'s note that env files are injected at runtime).
+
+### Web vs worker: what changes
+
+Same image, same env vars (Redis and DB creds especially **must match**), just a different `APP_ROLE`. Producers (`EmailsService`, `PaycodeService`) live in the web-side feature modules so HTTP handlers can enqueue jobs; the matching `@Processor` classes live in [`workers.module.ts`](../../apps/api/src/workers.module.ts) and only run in the worker container. Bull Board's admin UI (`/api/admin/queues`) is web-only — it needs an HTTP server to mount routes.
+
+Both containers migrate on boot by default (idempotent, safe under concurrent startup via Drizzle's advisory lock). At N=1 web + N=1 worker this is fine; scale beyond that and set `SKIP_MIGRATIONS=true` on all replicas except a dedicated pre-deploy migrate step.
 
 ## Required environment variables
 
@@ -33,13 +41,27 @@ You also need a **Redis instance** reachable from the API in production — `doc
 
 This is the path with the most direct evidence in the repo's history (`.dockerignore`'s "env files (injected by Coolify at runtime)" comment, and several past commits fixing Coolify-specific build issues).
 
-1. **New Resource → Docker Image** (or **Application** pointed at this git repo, build pack: Dockerfile). If building from git, set the Dockerfile path to the repo root `Dockerfile` — Coolify needs the full monorepo context since the build stage runs `turbo prune` against the whole tree, not just `apps/api`.
-2. **Environment variables** — add every var from the table above in Coolify's env editor. Coolify injects these into the running container; nothing needs to be in the image.
-3. **Port** — set the container port to `4000` (or whatever you set `PORT` to) and let Coolify's proxy handle the public domain + TLS.
-4. **Health check** — Coolify can use the image's built-in `HEALTHCHECK` directive automatically, or you can point its own health-check config at `GET /api/health`.
-5. **Deploy.** First boot runs migrations via the entrypoint script — watch the deploy logs for `[entrypoint] Running database migrations…` followed by `[entrypoint] Migrations complete.`
+Deploy **two services from the same image** — one web, one worker — so background work (email send, paycode expiry sweep, future crons) has its own process that scales, restarts, and drains independently of HTTP.
 
-If you scale to multiple replicas later, set `SKIP_MIGRATIONS=true` on all replicas except a dedicated one-off migrate step (or a pre-deploy hook), so N replicas don't all race to run migrations on the same boot — Drizzle's migrations are idempotent so this is a safety/speed concern, not a correctness one, but avoids N processes all doing redundant migration-table locking on every restart.
+### Web service
+
+1. **New Resource → Application** pointed at this git repo (build pack: Dockerfile). Set the Dockerfile path to the repo root `Dockerfile` — Coolify needs the full monorepo context because the build stage runs `turbo prune` against the whole tree, not just `apps/api`.
+2. **Environment variables** — every var from the table above. Leave `APP_ROLE` unset (or set explicitly to `web`).
+3. **Port** — container port `4000` (or your `PORT` override). Coolify's proxy handles the public domain + TLS.
+4. **Health check** — Coolify uses the image's built-in `HEALTHCHECK` (curls `GET /api/health`).
+5. **Deploy.** First boot runs migrations via the entrypoint — watch for `[entrypoint] Running database migrations…` followed by `[entrypoint] Starting Bookmi API`.
+
+### Worker service
+
+1. **Clone the web service** in Coolify (or add a second Application pointed at the same repo + Dockerfile).
+2. **Environment variables** — copy every var from the web service. Redis and DB creds **must be identical** — the worker connects to the same queues the web enqueues to and the same databases it reads. Then add / override:
+   - `APP_ROLE=worker`
+   - `SKIP_MIGRATIONS=true` — the web service already migrated on its boot; leaving both racing is safe (advisory-lock serialized) but redundant.
+3. **No port, no domain, no proxy** — the worker is headless. Remove any public exposure Coolify wired in from the clone.
+4. **Health check** — leave the built-in `HEALTHCHECK`; the script short-circuits to `exit 0` for the worker role. Coolify detects crashes via container status.
+5. **Deploy.** Logs should show `[entrypoint] Starting Bookmi worker (schedulers + BullMQ consumers)…` followed by `Worker ready — schedulers + BullMQ consumers active`.
+
+Scale each independently: bump worker replicas when the email queue backs up; bump web replicas when HTTP latency climbs. If you scale web past N=1, set `SKIP_MIGRATIONS=true` there too and run migrations from a dedicated pre-deploy hook so N processes don't all race the migration-table lock on every restart.
 
 ## Option B — DigitalOcean App Platform
 
@@ -56,10 +78,19 @@ If you scale to multiple replicas later, set `SKIP_MIGRATIONS=true` on all repli
 # Build (run from the repo root — the build needs the full monorepo context)
 docker build -t bookmi-api .
 
-# Run
+# Web
 docker run -d \
-  --name bookmi-api \
+  --name bookmi-api-web \
   -p 4000:4000 \
+  --env-file apps/api/.env.production \
+  --restart unless-stopped \
+  bookmi-api
+
+# Worker (same image, same env — the entrypoint dispatches on APP_ROLE)
+docker run -d \
+  --name bookmi-api-worker \
+  -e APP_ROLE=worker \
+  -e SKIP_MIGRATIONS=true \
   --env-file apps/api/.env.production \
   --restart unless-stopped \
   bookmi-api

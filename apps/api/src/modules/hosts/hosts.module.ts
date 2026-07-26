@@ -13,8 +13,6 @@ import { HostBookingsService } from "./services/host-bookings.service";
 import { HostWalletService } from "./services/host-wallet.service";
 import { CustomersService } from "./services/customers.service";
 import { PaycodeService } from "./services/paycode.service";
-import { PaycodeSweepProcessor } from "./services/paycode-sweep.processor";
-import { PaycodeSweepScheduler } from "./services/paycode-sweep.scheduler";
 import { PaymentsModule } from "../payments/payments.module";
 import { SecurityModule } from "../security/security.module";
 import { WalletLedgerModule } from "./wallet-ledger.module";
@@ -26,8 +24,9 @@ import { QUEUE_PAYCODE_SWEEP } from "../../common/queues/queue.constants";
   // the checkout uses.
   // SecurityModule exports SecurityService — the refund + withdraw services
   // call verifyAndConsume before touching money.
-  // BullModule.registerQueue wires the 5-minute paycode expiry sweep onto
-  // the Redis connection QueuesModule already provides globally.
+  // BullModule.registerQueue makes the paycode-sweep queue injectable in
+  // this module (producers side). The matching processor + scheduler live in
+  // workers.module.ts so they only run in the APP_ROLE=worker container.
   imports: [
     PaymentsModule,
     SecurityModule,
@@ -50,8 +49,6 @@ import { QUEUE_PAYCODE_SWEEP } from "../../common/queues/queue.constants";
     HostWalletService,
     CustomersService,
     PaycodeService,
-    PaycodeSweepProcessor,
-    PaycodeSweepScheduler,
   ],
   exports: [
     HostProfileService,
