@@ -34,6 +34,8 @@ void (async () => {
   const sql = postgres(dbUrl as string, {
     max: 1,
     connect_timeout: 30,
+    // Transaction pooler (:6543) can't use prepared statements.
+    prepare: false,
   });
 
   const db = drizzle(sql);
