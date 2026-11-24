@@ -60,7 +60,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const client = postgres(url, { max: 1 });
+  // Transaction pooler (:6543) can't use prepared statements.
+  const client = postgres(url, { max: 1, prepare: false });
   const db = drizzle(client);
 
   try {
